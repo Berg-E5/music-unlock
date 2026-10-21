@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# 同一分支的旧构建直接取消, 省 runner
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 自检 + 构建镜像
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建期自检
+        # 纯静态项目, 不需要装依赖, 直接跑
+        run: sh docker/verify.sh
+
+      - name: 生成 zip 包
+        # 顺便验证 pack.py 也能跑 (发布页要用)
+        run: python3 pack.py dist/music-unlock-deploy.zip
+
+      - name: 上传 zip 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: music-unlock-deploy
+          path: dist/music-unlock-deploy.zip
+          retention-days: 30
+
+      - name: 构建 Docker 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: music-unlock:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 起容器
+        run: |
+          docker run -d --name music-unlock -p 8080:8080 music-unlock:test
+          # 等 nginx 起来
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8080/healthz >/dev/null; then break; fi
+            sleep 0.5
+          done
+
+      - name: 冒烟测试 — HTTP 与安全头
+        run: |
+          set -e
+          echo "── 健康检查 ──"
+          curl -sf http://127.0.0.1:8080/healthz
+
+          echo ""
+          echo "── CSP 头必须每个路径都有 ──"
+          # 踩过的坑: nginx location 里的 add_header 会丢弃 server 级所有 add_header,
+          # 结果 JS/CSS 请求全无 CSP → Worker 场景下页面白屏。这个检查就是防它回归。
+          for path in / /index.html /assets/js/app.js /assets/js/worker.js \
+                      /modules/qmc.js /qqmusic-frida.zip; do
+            n=$(curl -sI "http://127.0.0.1:8080$path" | grep -ci "content-security-policy" || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8080$path")
+            echo "  $path → HTTP $code, CSP $n"
+            [ "$code" = "200" ] || { echo "✗ $path 返回 $code"; exit 1; }
+            [ "$n" -ge 1 ]     || { echo "✗ $path 缺 CSP 头"; exit 1; }
+          done
+
+          echo ""
+          echo "── 404 不能 fallback 到首页 ──"
+          code=$(curl -s -o /tmp/nf -w "%{http_code}" http://127.0.0.1:8080/definitely-not-here.js)
+          [ "$code" = "404" ] || { echo "✗ 应返回 404, 实际 $code"; exit 1; }
+          grep -q "音乐解锁" /tmp/nf && { echo "✗ 404 返回了首页内容 (SPA fallback)"; exit 1; }
+          echo "  ✓ 404 正确"
+
+      - name: 浏览器端到端（解密/转码）
+        uses: browser-actions/setup-playwright@v1
+        with:
+          playwright-version: latest
+
+      - name: 真浏览器验证解密链路
+        run: |
+          set -e
+          cat > /tmp/e2e.js <<'EOF'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage();
+            const errs = [];
+            const csp = [];
+            p.on('pageerror', e => errs.push(e.message));
+            p.on('console', m => { if (/Content Security Policy|Refused/i.test(m.text())) csp.push(m.text()); });
+
+            await p.goto('http://127.0.0.1:8080/', { waitUntil: 'networkidle' });
+            await p.waitForTimeout(2000);
+
+            if (csp.length) { console.error('CSP 违规:\n' + csp.join('\n')); process.exit(1); }
+            if (errs.length) { console.error('JS 错误:\n' + errs.join('\n')); process.exit(1); }
+
+            const title = await p.title();
+            if (!title) { console.error('页面标题为空'); process.exit(1); }
+            console.log('✓ 页面加载:', title);
+
+            // 转码链路: 造一个合法 WAV, 拖进去, 期望产出 mp3
+            await p.setInputFiles('#file-input', '/tmp/t.wav');
+            await p.waitForTimeout(9000);
+            const n = await p.evaluate(() => document.getElementById('done-count').textContent);
+            const files = await p.evaluate(() =>
+              [...document.querySelectorAll('#done-list a[download]')].map(a => a.getAttribute('download')));
+            if (n === '0' || !files.length) { console.error('转码失败, done=', n); process.exit(1); }
+            console.log('✓ 转码产出:', files.join(', '));
+
+            await b.close();
+          })();
+          EOF
+
+          # 造一个 1 秒静音 WAV
+          python3 - <<'PY'
+          import struct, math
+          rate, secs = 22050, 1
+          frames = b''.join(struct.pack('<h', int(3000*math.sin(i*0.1))) for i in range(rate*secs))
+          hdr = b'RIFF' + struct.pack('<I', 36+len(frames)) + b'WAVEfmt ' \
+                + struct.pack('<IHHIIHH', 16, 1, 1, rate, rate*2, 2, 16) \
+                + b'data' + struct.pack('<I', len(frames))
+          open('/tmp/t.wav','wb').write(hdr+frames)
+          PY
+
+          npm i --no-save playwright >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          node /tmp/e2e.js
+
+      - name: 容器日志（失败时有用）
+        if: failure()
+        run: docker logs music-unlock || true
+
+      - name: 清理
+        if: always()
+        run: docker rm -f music-unlock || true
+
+  publish:
+    name: 推送镜像到 GHCR
+    needs: verify
+    runs-on: ubuntu-latest
+    # 只在正式分支推送时发布
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 镜像摘要
+        run: 'echo "镜像: ${{ steps.meta.outputs.tags }}"'

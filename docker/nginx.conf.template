@@ -1,0 +1,100 @@
+# ============================================================
+#  容器内 nginx 站点配置 (模板)
+#
+#  启动时由 nginx 官方 entrypoint 的 envsubst 处理:
+#    ${SERVER_NAME}  → server_name
+#    ${LISTEN_PORT}  → 监听端口
+#    ${CSP}          → Content-Security-Policy
+#
+#  ⚠ 关于 nginx 变量 ($uri 等):
+#     entrypoint 只替换**存在于环境变量里**的名字, 所以 $uri / $host
+#     这些 nginx 内置变量不会被误替换, 可以原样写。
+#     但如果你的环境里恰好有叫 uri/host 的变量, 就会被吃掉 ——
+#     那时把这些写成 $uri 前加一层转义即可。
+#
+#  ⚠ nginx add_header 继承坑:
+#     只要 location 里出现任何一个 add_header, server 级的所有 add_header
+#     都会被**丢弃**(replace 而非 merge)。所以每个 location 都必须
+#     自己重复一遍完整 CSP, 否则子路径上 CSP 失效 → 页面白屏。
+# ============================================================
+
+server {
+    # 由 entrypoint.sh 生成: HTTP 模式或 HTTPS 模式 (含证书路径)
+    ${TLS_BLOCK}
+    server_name  ${SERVER_NAME};
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    charset utf-8;
+    server_tokens off;
+
+    # ---------- 安全头 ----------
+    # CSP 是硬约束: 缺了 worker-src, Worker 创建会失败 → 页面完全空白
+    add_header Content-Security-Policy "${CSP}" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    # ---------- 站点静态资源 ----------
+    # 不缓存 HTML/JS/CSS —— 改了立刻生效, 不用教用户清缓存
+    location ~* \.(html|js|css)$ {
+        add_header Content-Security-Policy "${CSP}" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        try_files $uri =404;
+    }
+
+    # 媒体与字体可以长缓存
+    location ~* \.(mp3|flac|ogg|wav|m4a|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf)$ {
+        add_header Content-Security-Policy "${CSP}" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Cache-Control "public, max-age=2592000" always;
+        try_files $uri =404;
+    }
+
+    # 借壳解密工具: 走下载而不是让浏览器内联渲染
+    location = /qqmusic-frida.zip {
+        add_header Content-Security-Policy "${CSP}" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Content-Disposition "attachment; filename=\"qqmusic-frida.zip\"" always;
+        default_type application/zip;
+        try_files $uri =404;
+    }
+
+    # ---------- 默认 ----------
+    location / {
+        add_header Content-Security-Policy "${CSP}" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+
+        # 真实静态站必须 404, 不能 fallback 到 index.html
+        # (SPA fallback 会让"文件不存在"也返回 200, 排错时极具误导性)
+        try_files $uri $uri/ =404;
+    }
+
+    # 健康检查端点 (给 load balancer / 监控用)
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # 不暴露目录列表
+    autoindex off;
+
+    # 单文件上传上限 (加密歌曲一般 30-60MB, 给到 512M 留足余量)
+    client_max_body_size 512m;
+
+    # 静态站不需要这些
+    # (保持注释: 说明为什么故意不配 —— 避免后来者以为是漏了)
+    # gzip        : nginx:alpine 未预装 ngx_http_gzip_module, 且静态站体积已小
+    # access_log  : 纯静态站没有有意义的访问日志, 打开只会撑爆磁盘
+}

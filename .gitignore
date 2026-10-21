@@ -1,0 +1,39 @@
+# ---------- 构建产物 / 缓存 ----------
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.DS_Store
+Thumbs.db
+*.log
+
+# ---------- 测试素材 (含真实 QQ 音乐文件, 不可分发) ----------
+test/xval-vectors/*.mgg
+test/xval-vectors/*.ncm
+test/shots/
+test/e2e-shots/
+*.mp3
+*.ncm
+*.mgg
+*.mflac
+*.qmc*
+*.kgm*
+*.vpr
+
+# ---------- 打包产物 ----------
+music-unlock-deploy.zip
+dist/
+build/
+
+# ---------- 本地配置 ----------
+.env
+.env.*
+*.local.conf
+certbot/
+
+# ---------- 编辑器 ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store

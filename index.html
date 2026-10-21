@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="本地解锁 NCM / QMC / KGM / VPR 加密音乐格式 · 浏览器内运行 · 文件不上传" />
+  <title>音乐解锁 · NCM / QMC / KGM / VPR → MP3 / FLAC</title>
+  <link rel="stylesheet" href="assets/css/style.css?v=103" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2322d3ee'/%3E%3Cstop offset='100%25' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <header>
+    <h1>音乐解锁</h1>
+    <p>把各大音乐平台的<strong>加密格式</strong>转换成通用的 MP3 / FLAC / OGG</p>
+    <p class="header-tag">支持 NCM / QMC / KGM / VPR 加密格式 · 已解密音频也能转格式</p>
+  </header>
+
+  <main>
+    <!-- 上传区 -->
+    <section id="dropzone" tabindex="0" role="button" aria-label="拖入文件或点击选择">
+      <div class="dropzone-inner">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="icon">
+          <path fill="currentColor" d="M19.35 10.04A7.49 7.49 0 0 0 12 4a7.49 7.49 0 0 0-7.35 6.04A5.5 5.5 0 0 0 0 15.5 5.5 5.5 0 0 0 5.5 21h13a4.5 4.5 0 0 0 .85-8.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+        </svg>
+        <p class="title">拖入文件 或 点击选择</p>
+        <p class="hint">加密音乐和已解密的音频都收 · 多文件可同时处理</p>
+
+        <div class="dz-formats">
+          <div class="dz-fmt-group">
+            <span class="dz-fmt-label dz-fmt-enc">自动解密</span>
+            <span class="dz-fmt-chip">.ncm</span>
+            <span class="dz-fmt-chip">.qmc*</span>
+            <span class="dz-fmt-chip">.tkm</span>
+            <span class="dz-fmt-chip">.bkc*</span>
+            <span class="dz-fmt-chip">.kgm*</span>
+            <span class="dz-fmt-chip">.vpr</span>
+          </div>
+          <div class="dz-fmt-group">
+            <span class="dz-fmt-label dz-fmt-plain">直接转 MP3</span>
+            <span class="dz-fmt-chip">.mp3</span>
+            <span class="dz-fmt-chip">.flac</span>
+            <span class="dz-fmt-chip">.ogg</span>
+            <span class="dz-fmt-chip">.wav</span>
+            <span class="dz-fmt-chip">.m4a</span>
+            <span class="dz-fmt-chip">.aac</span>
+            <span class="dz-fmt-chip">.opus</span>
+            <span class="dz-fmt-chip">.ape</span>
+          </div>
+        </div>
+
+        <div class="opt-row" id="opt-row" style="margin:8px 0;display:flex;gap:14px;align-items:center;justify-content:center;font-size:14px;color:#5a6275;flex-wrap:wrap">
+          <span style="color:#5a6275">输出码率：</span>
+          <select id="mp3-bitrate" style="padding:4px 8px;border-radius:4px;border:1px solid #ccc">
+            <option value="128">128 kbps</option>
+            <option value="192">192 kbps</option>
+            <option value="256">256 kbps</option>
+            <option value="320" selected>320 kbps</option>
+          </select>
+          <span style="color:#999;font-size:12px;margin-left:4px">(默认转码为 MP3)</span>
+        </div>
+
+        <!-- .mgg/.mflac 的密钥不在文件内, 网页端拿不到 -> 唯一出路是借壳工具 -->
+        <div class="dz-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+          <span><code>.mgg</code> / <code>.mflac</code> 的密钥不在文件里，网页端解不了 ——
+            请用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a> 在你自己的电脑上解完再拖回来</span>
+        </div>
+
+        <input type="file" id="file-input" multiple
+               accept=".ncm,.qmc0,.qmc1,.qmc2,.qmc3,.qmcflac,.qmcogg,.tkm,.mgg,.mgg0,.mgg1,.mgg2,.mgg3,.mggl,.mflac,.mflac0,.mflac2,.mflac3,.mmp4,.bkcmp3,.bkcm4a,.bkcflac,.bkcogg,.666c6163,.6d7033,.6f6767,.6d3461,.776176,.kgm,.kgma,.vpr,.mqmc,.mqcf,.mp3,.flac,.ogg,.oga,.wav,.m4a,.aac,.opus,.ape,.webm" />
+      </div>
+    </section>
+
+    <!-- 完成列表 -->
+    <section id="done" hidden>
+      <h2>已完成 <span id="done-count">0</span></h2>
+      <ul id="done-list"></ul>
+    </section>
+
+    <section id="queue" hidden>
+      <div class="queue-head">
+        <h2>文件 <span id="count">0</span></h2>
+        <div class="actions">
+          <button id="clear-btn" class="btn-ghost">清空</button>
+          <button id="download-all" class="btn-primary" disabled>打包下载全部</button>
+        </div>
+      </div>
+      <ul id="list"></ul>
+    </section>
+
+    <!-- 支持的格式 — 改用 chip 列表清晰展示 -->
+    <section class="formats">
+      <h2 class="block-title">支持的音乐格式</h2>
+      <p class="block-sub">覆盖主流平台的加密格式，丢掉会员也能继续听</p>
+      <div class="format-chips">
+        <div class="format-chip ncm">
+          <div class="chip-head">
+            <span class="chip-logo">NCM</span>
+            <span class="chip-platform">网易云音乐</span>
+          </div>
+          <p class="chip-desc">.ncm 加密容器，内嵌封面/歌词</p>
+          <div class="chip-status done">已支持 · 含元数据</div>
+        </div>
+        <div class="format-chip qmc">
+          <div class="chip-head">
+            <span class="chip-logo">QMC</span>
+            <span class="chip-platform">QQ 音乐 / 酷狗 / 酷我</span>
+          </div>
+          <p class="chip-desc">.qmc0/.qmc2/.qmc3/.qmcflac/.qmcogg/.tkm/.bkcmp3/.bkcflac…</p>
+          <div class="chip-status done">QQ 音乐 v1/v2 · 酷我 v1 · 密钥在文件内，直接可解</div>
+        </div>
+        <div class="format-chip kgm">
+          <div class="chip-head">
+            <span class="chip-logo">KGM</span>
+            <span class="chip-platform">酷狗音乐</span>
+          </div>
+          <p class="chip-desc">.kgm / .kgma</p>
+          <div class="chip-status partial">实验中</div>
+        </div>
+        <div class="format-chip vpr">
+          <div class="chip-head">
+            <span class="chip-logo">VPR</span>
+            <span class="chip-platform">酷我音乐</span>
+          </div>
+          <p class="chip-desc">.vpr 私有格式</p>
+          <div class="chip-status partial">实验中</div>
+        </div>
+      </div>
+      <p class="formats-foot">解密后输出 <code>MP3</code> / <code>FLAC</code> / <code>OGG</code>（取决于原文件） · 全部在浏览器本地完成</p>
+    </section>
+
+    <!-- 文件列表 -->
+
+
+    <!-- 底部固定试听播放器 (audio 在 DOM 里, 绕过 autoplay policy) -->
+    <div id="player-bar" hidden>
+      <div class="player-info">
+        <div class="player-name" id="player-name">—</div>
+        <div class="player-meta" id="player-meta"></div>
+      </div>
+      <audio id="player-audio" controls preload="metadata"></audio>
+      <button class="player-close" id="player-close" title="关闭">×</button>
+    </div>
+
+    <!-- 核心特点 4 卡片 -->
+    <section class="features">
+      <div class="feature-card">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+        </div>
+        <h3>极致安全</h3>
+        <p>纯客户端技术，所有转换在设备本地完成，文件绝不上传服务器，保护你的隐私。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
+        </div>
+        <h3>完全免费</h3>
+        <p>无任何隐藏费用，不限转换数量，也没有文件大小上限。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6zm-2 16c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+        </div>
+        <h3>完美还原</h3>
+        <p>自动解析并保留专辑封面、歌手信息、歌词等元数据，源文件是 FLAC 就输出 FLAC，MP3 就输出 MP3。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.5 2.54l2.6 1.53c.56-1.24.9-2.62.9-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.06.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.06-4.09l-2.6-1.53C16.17 17.98 14.21 19 12 19z"/></svg>
+        </div>
+        <h3>极速批量</h3>
+        <p>支持拖拽上传，一键处理上百首歌曲，秒级转换。</p>
+      </div>
+    </section>
+
+    <!-- 使用步骤 -->
+    <section class="content-block">
+      <h2 class="block-title">三步解锁你的音乐</h2>
+      <p class="block-sub">把加密文件从任何音乐平台带回到通用格式</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">01</div>
+          <h3>添加文件</h3>
+          <p>点击拖拽区域，或直接将文件从文件夹拖入网页。支持批量选择（Ctrl/Shift 多选），可混搭不同格式。</p>
+        </div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <h3>自动识别</h3>
+          <p>系统会自动检测每个文件的加密格式，调用对应的解密算法。得益于本地处理，转换速度极快。</p>
+        </div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <h3>下载保存</h3>
+          <p>点击单曲旁的"下载"按钮，或点击"打包下载全部"，将所有歌曲一次性保存到设备。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 加密原理 — 改成跨平台通用版 -->
+    <section class="content-block">
+      <h2 class="block-title">音乐平台为什么加密？</h2>
+      <p class="block-sub">不是音质问题，是生态绑定问题</p>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-label">加密方式</div>
+          <div class="info-value">AES / 异或 / 私钥</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">音频本体</div>
+          <div class="info-value">MP3 / FLAC 没变</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">元数据</div>
+          <div class="info-value">歌名 / 歌手 / 封面</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">解锁方式</div>
+          <div class="info-value">去除加密外壳</div>
+        </div>
+      </div>
+      <div class="prose">
+        <p>网易云、QQ 音乐、酷狗、酷我这些平台下载下来的歌曲，都不是普通的 MP3/FLAC 文件，而是各自私有的加密容器：NCM、QMC、KGM、VPR …… 它们的共同点是：</p>
+        <ul>
+          <li>把原本的 MP3/FLAC 音频流用密钥加密后存储，文件头加一段魔数（如 NCM 的 <code>CTENFDAM</code>）；</li>
+          <li>把歌名、歌手、专辑、封面、歌词等元数据也加密藏在容器里；</li>
+          <li>只能在自家 App 客户端里播放，导入其他播放器、车机、剪辑软件全部失效。</li>
+        </ul>
+        <p>平台这么做的目的很简单：<strong>版权保护 + 生态锁定</strong>——让你没法轻易把下载的歌曲带到别处去。本工具做的事情是反向的：<strong>把加密外壳去掉，还原出原本的音频文件</strong>。音频数据本身没有改动，320kbps 出来还是 320kbps，FLAC 出来还是无损 FLAC。</p>
+      </div>
+    </section>
+
+    <!-- 解密前后对比表 — 改成跨平台"加密 vs 通用" -->
+    <section class="content-block">
+      <h2 class="block-title">加密格式 vs 通用格式</h2>
+      <p class="block-sub">转换不改变音质，改变的是文件的通用性</p>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>对比项</th>
+              <th>加密格式（NCM/QMC/KGM/VPR）</th>
+              <th>通用格式（MP3 / FLAC）</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>是否加密</td>
+              <td>是，平台私钥封装</td>
+              <td>否，国际开放标准</td>
+            </tr>
+            <tr>
+              <td>谁家播放器能放</td>
+              <td>仅原平台客户端</td>
+              <td>几乎所有播放器</td>
+            </tr>
+            <tr>
+              <td>车载 U 盘 / MP3 播放器</td>
+              <td>无法识别</td>
+              <td>普遍支持</td>
+            </tr>
+            <tr>
+              <td>手机自带播放器</td>
+              <td>无法播放</td>
+              <td>直接播放</td>
+            </tr>
+            <tr>
+              <td>视频剪辑软件</td>
+              <td>剪映/PR 导入失败</td>
+              <td>可作为配乐</td>
+            </tr>
+            <tr>
+              <td>元数据</td>
+              <td>加密藏在容器内</td>
+              <td>标准 ID3 / Vorbis，通用可读</td>
+            </tr>
+            <tr>
+              <td>长期可用性</td>
+              <td>会员到期、歌曲下架都可能失效</td>
+              <td>不依赖任何账号</td>
+            </tr>
+            <tr>
+              <td>音质</td>
+              <td>取决于容器内的音频流</td>
+              <td>转换后与原文件一致</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-foot">一句话：<strong>转换不会改变音乐本身，只让它不再受平台账号限制</strong>。</p>
+    </section>
+
+    <!-- 使用场景 -->
+    <section class="content-block">
+      <h2 class="block-title">谁需要把加密格式转出来？</h2>
+      <div class="scenarios">
+        <div class="scenario">
+          <div class="scenario-icon">🚗</div>
+          <div>
+            <h3>车载音响 / U 盘</h3>
+            <p>车机只认 MP3/FLAC，把转换后的歌拷进 U 盘就能在车上听。</p>
+          </div>
+        </div>
+        <div class="scenario">
+          <div class="scenario-icon">⌚</div>
+          <div>
+            <h3>MP3 播放器、运动手表</h3>
+            <p>这些设备装不了任何音乐 App，只能读取通用格式的音频文件。</p>
+          </div>
+        </div>
+        <div class="scenario">
+          <div class="scenario-icon">🎬</div>
+          <div>
+            <h3>视频剪辑配乐</h3>
+            <p>剪映、Premiere、Final Cut 都无法导入 NCM/QMC，必须先转成 MP3。</p>
+          </div>
+        </div>
+        <div class="scenario">
+          <div class="scenario-icon">📱</div>
+          <div>
+            <h3>统一管理曲库</h3>
+            <p>转换后作为本地文件加入 Apple Music、Plex、foobar2000 等曲库。</p>
+          </div>
+        </div>
+        <div class="scenario">
+          <div class="scenario-icon">💾</div>
+          <div>
+            <h3>长期备份</h3>
+            <p>会员到期、歌曲下架、客户端更新都可能让已下载的歌突然失效，提前转出来才稳妥。</p>
+          </div>
+        </div>
+        <div class="scenario">
+          <div class="scenario-icon">🎁</div>
+          <div>
+            <h3>分享给家人朋友</h3>
+            <p>对方无需安装任何音乐 App，直接双击就能播（仅限私人少量分享）。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 关于无损 — 改成跨平台通用的解释 -->
+    <section class="content-block subtle">
+      <h2 class="block-title">关于无损保真</h2>
+      <p class="prose">本工具做的事情是<strong>去除加密外壳</strong>，不涉及任何重新编码。源文件是无损 FLAC 就输出 FLAC，是 320kbps MP3 就输出同样的 320kbps MP3。音质与原文件<strong>完全一致</strong>，你也不需要做任何格式设置。</p>
+      <p class="prose">如果你想要 ALAC（苹果无损）或 Opus 等其他格式，正确做法也是先在这里还原出原始的 FLAC / MP3，再做无损转码——加密容器内部并不存在这些格式的音频流。</p>
+    </section>
+
+    <!-- FAQ — 改成跨平台通用版 -->
+    <section class="content-block">
+      <h2 class="block-title">常见问题 (FAQ)</h2>
+      <div class="faq">
+
+        <details>
+          <summary>支持哪些音乐平台和格式？</summary>
+          <div class="faq-body">
+            <p><strong>已完整支持：</strong></p>
+            <ul>
+              <li>网易云音乐 <code>.ncm</code>（含新版 3.x 客户端，封面/歌词元数据完整）</li>
+              <li>QQ 音乐 / 酷我 <strong>v1 静态密钥格式</strong>：<code>.bkcmp3</code> / <code>.tkm</code> / <code>.bkcflac</code> / <code>.bkcogg</code> 等老版本下载的歌曲</li>
+              <li>QQ 音乐 <strong>v2 加密</strong>：<code>.qmc0</code> / <code>.qmc2</code> / <code>.qmc3</code> / <code>.qmcflac</code> / <code>.qmcogg</code> / <code>.mggl</code> 等 —— 密钥就在文件头里，可直接解</li>
+            </ul>
+            <p><strong>需要额外工具：</strong></p>
+            <ul>
+              <li>QQ 音乐 <strong>.mgg</strong> / <code>.mflac</code>（含 .mgg2 / .mflac2 等新版）：每首歌的密钥不在文件里，浏览器拿不到。
+                  请用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>（在你自己已登录的电脑上运行，让客户端自己解密），解完再用本页面转格式。</li>
+            </ul>
+            <p><strong>实验性 / 部分支持：</strong></p>
+            <ul>
+              <li>酷狗 <code>.kgm</code> / <code>.kgma</code>：算法未完整移植</li>
+              <li>酷我 <code>.vpr</code>：算法未完整移植</li>
+            </ul>
+            <p>遇到不支持的格式，错误信息会明确提示原因，欢迎反馈样本文件以便适配。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>转换会损失音质吗？</summary>
+          <div class="faq-body">
+            <p>不会。本工具只做"去除加密外壳"，原始音频数据完整保留，不重新编码。如果原文件是 320kbps 的 MP3，转换后仍然是 320kbps；如果原文件是无损 FLAC，转换后也是无损 FLAC。音质与原文件完全一致。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>转换后的文件保存在哪里？</summary>
+          <div class="faq-body">
+            <p>这取决于你浏览器的默认下载设置：</p>
+            <ul>
+              <li><strong>Windows / Mac 电脑</strong>：通常在系统的"下载"或 <code>Downloads</code> 文件夹中。</li>
+              <li><strong>Android 手机</strong>：通常在"文件管理" → "内部存储" → <code>Download</code> 文件夹。</li>
+              <li><strong>iPhone / iPad (iOS)</strong>：在"文件"App → "iCloud 云盘"或"我的 iPhone" → "下载"文件夹中。</li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>我的文件安全吗？会被上传吗？</summary>
+          <div class="faq-body">
+            <p>100% 安全。本工具采用纯客户端（Client-side）技术，所有文件转换均在你的浏览器本地完成。你的音乐文件绝不会上传到任何服务器，我们也不会保存、读取或收集你的任何文件内容。你可以在<strong>断网状态下</strong>使用本工具来验证这一点。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>为什么点击"添加文件"没有反应？</summary>
+          <div class="faq-body">
+            <p>请确保你使用的是现代浏览器（Chrome、Edge、Safari、Firefox）。如果在手机端使用，请检查是否授予了浏览器"访问文件"的权限。部分安卓浏览器可能需要长按上传按钮才能唤起文件选择器。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>下载的文件名为什么变了？</summary>
+          <div class="faq-body">
+            <p>为了保护隐私，部分浏览器在传递文件时会隐藏原始文件名。我们会尽力从加密容器内部的元数据中提取歌名和歌手来重命名文件，确保你能清楚地识别每一首歌。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>转换有文件大小或数量限制吗？</summary>
+          <div class="faq-body">
+            <p>没有限制。转换在你的浏览器本地完成，文件不经过网络传输，因此不存在服务器带宽或存储上限，几百 MB 的无损文件也能正常处理。需要上传文件的在线工具通常把单文件限制在 50MB 左右，无损音频很容易超标。数量同样不限，批量拖入即可。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>QQ 音乐的 .mgg / .mflac 为什么不能直接解？</summary>
+          <div class="faq-body">
+            <p>因为它们的<b>密钥不在文件里</b>。老格式（<code>.qmc0</code> / <code>.qmcflac</code> 等）密钥直接写在文件头，浏览器拿到就能解；而 <code>.mgg</code> / <code>.mflac</code> 每首歌的密钥由 QQ 服务器单独下发，不存在任何公开的获取入口。</p>
+            <p>所以这类文件只能<b>借用你自己的 QQ 音乐客户端来解密</b>：</p>
+            <ol>
+              <li>下载 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>，解压到本地</li>
+              <li>在这台电脑（已登录 QQ 音乐）上运行 <code>run.bat</code> 或 <code>watch.bat</code></li>
+              <li>得到 <code>.ogg</code> / <code>.mp3</code> 后，拖回本页面上方的「已解密文件」区转格式</li>
+            </ol>
+            <p>整个过程在你自己的电脑上完成，文件不会上传到任何服务器。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>把下载的加密文件转出来合法吗？</summary>
+          <div class="faq-body">
+            <p>将自己付费获得的歌曲转换格式、仅在个人设备上播放，通常属于合理使用的范畴。但请不要公开传播、出售转换后的文件或将其用于商业用途，否则可能侵犯版权方的权利。各地法规存在差异，请在当地法律允许的范围内使用本工具。</p>
+          </div>
+        </details>
+
+      </div>
+    </section>
+
+    <!-- 关于本工具 -->
+    <section class="info">
+      <details>
+        <summary>关于这个工具</summary>
+        <ul>
+          <li>所有解密在浏览器中完成，文件从不上传</li>
+          <li>NCM 算法已完整实现 · QMC / KGM / VPR 算法持续适配新版本</li>
+          <li>解密时主线程不卡（Web Worker 后台处理）</li>
+          <li>自动写入元数据（标题、艺术家、专辑、封面、歌词）</li>
+        </ul>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>个人用途 · 请尊重音乐版权</p>
+  </footer>
+
+  <!-- 提示 -->
+  <div id="toast" aria-live="polite"></div>
+
+  <!-- JSZip (用于打包下载) -->
+  <!-- jszip 本地化: 打包下载全部时用, 走本地不走 CDN -->
+  <script src="modules/jszip.min.js?v=103"></script>
+  <!-- 主应用（所有解密逻辑在 worker 里） -->
+  <script src="assets/js/app.js?v=82"></script>
+</body>
+</html>

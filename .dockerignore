@@ -1,0 +1,41 @@
+# ---------- 不进镜像上下文 (加速构建, 减小镜像) ----------
+.git/
+.gitignore
+.github/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 测试相关 (不进生产镜像)
+test/
+shots/
+*.log
+
+# 打包产物
+music-unlock-deploy.zip
+dist/
+build/
+
+# 开发工具
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 文档 (README 由 CI 引用, 不必进镜像)
+README.md
+
+# Docker 自身文件 (镜像里用 COPY 指定路径, 不需要整个目录)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 借壳工具的 Python 源码 (那是给用户在自己电脑上跑的, 不参与服务端)
+decrypt_frida.py
+frida_mode/
+
+# ---------- 但要保留的 ----------
+# docker/nginx.conf.template 和 docker/entrypoint.sh 是 Dockerfile 显式 COPY 的,
+# 即使父目录被忽略也没关系 —— 上面只忽略了 Dockerfile/docker-compose/.dockerignore 本身,
+# 没有忽略 docker/ 目录。

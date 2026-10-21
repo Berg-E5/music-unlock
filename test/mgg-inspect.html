@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>MGG 文件检测器</title>
+<style>body{font-family:monospace;padding:20px;background:#0e1729;color:#e4e8f1}#log{background:#000;padding:12px;border-radius:6px;white-space:pre-wrap;line-height:1.6}input{margin-bottom:12px}</style>
+</head><body>
+<h3>MGG / MFLAC 文件尾检测器 — 告诉你文件到底是 V几</h3>
+<input type="file" id="f" />
+<div id="log">选个文件...</div>
+<script>
+document.getElementById('f').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const buf = await f.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  const L = bytes.length;
+  const log = document.getElementById('log');
+  const lines = [];
+  lines.push('文件: ' + f.name);
+  lines.push('大小: ' + L + ' B');
+  // 末 4 字节 ASCII
+  const last4 = String.fromCharCode(bytes[L-4], bytes[L-3], bytes[L-2], bytes[L-1]);
+  lines.push('末尾 4 字节 ASCII: "' + last4 + '"');
+  const last8 = String.fromCharCode(...bytes.slice(L-8));
+  lines.push('末尾 8 字节 ASCII: "' + last8.replace(/[\x00-\x1f]/g, c=>'\\x'+c.charCodeAt(0).toString(16).padStart(2,'0')) + '"');
+  // 末 16 字节 hex
+  const last16 = bytes.slice(L-16);
+  lines.push('末尾 16 字节 hex: ' + [...last16].map(b=>b.toString(16).padStart(2,'0')).join(' '));
+  // musicex 搜索
+  const last1k = bytes.slice(Math.max(0, L-1024));
+  const idx = last1k.indexOf('musicex');
+  lines.push('musicex 在末尾 1024B 内? ' + (idx >= 0 ? 'YES (距末 ' + (last1k.length - idx) + ' 字节)' : 'NO'));
+  // QTag / STag
+  lines.push('最后 4 字节匹配 QTag? ' + (last4 === 'QTag' ? 'YES' : 'NO'));
+  lines.push('最后 4 字节匹配 STag? ' + (last4 === 'STag' ? 'YES' : 'NO'));
+  // 头 16 字节
+  const head16 = bytes.slice(0, 16);
+  lines.push('头 16 字节 hex: ' + [...head16].map(b=>b.toString(16).padStart(2,'0')).join(' '));
+  lines.push('头 8 字节 ASCII: "' + String.fromCharCode(...head16).replace(/[\x00-\x1f]/g, c=>'?') + '"');
+  // 关键大小
+  const keySizeLE = bytes[L-4] | (bytes[L-3]<<8) | (bytes[L-2]<<16) | (bytes[L-1]<<24);
+  lines.push('末尾 4 字节 (LE) = ' + keySizeLE + ' (0x' + keySizeLE.toString(16) + ')');
+  // 推断
+  let verdict = '未知';
+  if (last4 === 'QTag') verdict = 'V2 带 ekey (QTag)';
+  else if (last4 === 'STag') verdict = 'V2 STag (需要 EKB)';
+  else if (idx >= 0) verdict = 'V3 MusicEx (末尾 0xC0=192 字节 footer)';
+  else if (keySizeLE < 0x400 && keySizeLE > 0) verdict = 'V2 嵌入 key (末 4 字节 = keySize)';
+  else verdict = 'V1 静态密钥 / 未知';
+  lines.push('');
+  lines.push('━━━━━━━━━━ 判断 ━━━━━━━━━━');
+  lines.push(verdict);
+  log.textContent = lines.join('\n');
+});
+</script>
+</body></html>

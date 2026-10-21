@@ -1,0 +1,109 @@
+# ============================================================
+#  音乐解锁 — Docker Compose 部署
+#
+#  最简:
+#      docker compose up -d
+#      → http://localhost:8080
+#
+#  带 HTTPS (自动申请 Let's Encrypt 证书):
+#      SERVER_NAME=music.example.com \
+#      CERTBOT_EMAIL=you@example.com \
+#      docker compose up -d
+#
+#  端口冲突时改映射:
+#      docker compose up -d     # 默认 8080:8080
+# ============================================================
+
+services:
+  music-unlock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: music-unlock:latest
+    container_name: music-unlock
+    restart: unless-stopped
+
+    ports:
+      # 左边是宿主机端口, 右边是容器内端口(固定 8080)
+      - "${HOST_PORT:-8080}:8080"
+
+    environment:
+      # ---------- 站点 ----------
+      # 部署到子路径时: SERVER_NAME=example.com/music
+      SERVER_NAME: "${SERVER_NAME:-localhost}"
+      LISTEN_PORT: "8080"
+
+      # ---------- CSP ----------
+      # 纯静态项目: 无任何外部 CDN 依赖, 所以 script-src 不需要放开第三方域名。
+      # 唯一例外: worker-src / script-src 必须含 blob: (Worker 用 blob URL)
+      CSP: "${CSP:-default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self' blob: data:; object-src 'self' blob:; frame-src 'self' blob:; base-uri 'self'; form-action 'self'}"
+
+    # ---------- 资源 ----------
+    # 上传是纯浏览器内行为, 不落盘, 但 worker 内存需求随文件大小增长
+    # 给容器留足堆内存: 处理几百 MB 的加密歌曲不会 OOM
+    mem_limit: 512m
+
+    # ---------- 日志 ----------
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # ---------- 安全 ----------
+    # 纯静态站不需要任何特权
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+
+    labels:
+      org.opencontainers.image.title: "音乐解锁"
+      org.opencontainers.image.description: "浏览器内解密 NCM/QMC/KGM 加密音乐, 零后端零上传"
+      org.opencontainers.image.licenses: "MIT"
+
+  # ---------------------------------------------------------------
+  #  HTTPS (可选) —— 需要时启用: docker compose --profile tls up -d
+  # ---------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    container_name: music-unlock-certbot
+    restart: unless-stopped
+    profiles: ["tls"]
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    # 每 12 小时续期一次 (certbot 内部会判断是否真的需要续)
+    entrypoint: >
+      sh -c "certbot certonly --webroot -w /var/www/certbot
+             -d ${SERVER_NAME:-localhost}
+             --email ${CERTBOT_EMAIL:-admin@localhost}
+             --agree-tos --no-eff-email --non-interactive
+             && while :; do sleep 12h; certbot renew --quiet; done"
+
+  music-unlock-tls:
+    profiles: ["tls"]
+    extends:
+      service: music-unlock
+    depends_on:
+      - certbot
+    ports:
+      - "${TLS_PORT:-443}:8443"
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt:ro
+    environment:
+      SERVER_NAME: "${SERVER_NAME:-localhost}"
+      LISTEN_PORT: "8443"
+      TLS_CERT: "/etc/letsencrypt/live/${SERVER_NAME:-localhost}/fullchain.pem"
+      TLS_KEY: "/etc/letsencrypt/live/${SERVER_NAME:-localhost}/privkey.pem"
+      CSP: "${CSP:-default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self' blob: data:; object-src 'self' blob:; frame-src 'self' blob:; base-uri 'self'; form-action 'self'}"
