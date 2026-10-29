@@ -36,4 +36,4 @@ certbot/
 .vscode/
 .idea/
 *.swp
-.DS_Store
+.DS_Storeqmc.js.bak-*
