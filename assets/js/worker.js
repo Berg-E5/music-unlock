@@ -10,7 +10,7 @@
  * ============================================ */
 
 // 版本号 — 改了 worker.js 或 modules 时同步改这里, 强制浏览器绕缓存
-const V = 103;
+const V = 105;
 
 importScripts(
   `../../modules/aes-js.js?v=${V}`,
@@ -231,7 +231,10 @@ self.addEventListener('message', async (e) => {
 
     const onProg = (r) => self.postMessage({ id, type: 'progress', ratio: r });
 
+    // opts: 目前只有 QMC 的 MusicEx (V3) 需要外部 ekey。
+    // ekey 由主线程从 UI 输入框带来 (base64 文本), QMC.decode 内部会转字节数组。
     const opts = {};
+    if (msg.ekey && String(msg.ekey).trim()) opts.ekey = String(msg.ekey).trim();
 
     const result = await handler.decode(bytes, ext, onProg, opts);
     onProg(1.0);
