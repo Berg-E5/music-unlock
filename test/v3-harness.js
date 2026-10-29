@@ -77,10 +77,13 @@ console.log('\n=== v3-harness: MusicEx (V3) 解密链路 ===\n');
 // ---------- A. base64Decode 回归 ----------
 console.log('A. CU.base64Decode');
 {
-  // 已知: "EBESExQVFhd3xf" 是 header8 = 0x10..0x17 的 base64
+  // 期望值 = 0x10..0x19 (10 字节), 其 base64 = "EBESExQVFhcYGQ=="
+  // 注意: 之前这里写的是 "EBESExQVFhd3xf" (14 字符) —— 长度不是 4 的倍数,
+  // 根本不是合法 base64, Buffer.from 宽松解码会截断出垃圾字节, 于是误报成实现 bug。
+  // (derived-key-harness.js 里同一个常量也是错的, 已一并修。)
   const EXPECT = Buffer.from([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19]);
   let got = null, err = null;
-  try { got = CU.base64Decode('EBESExQVFhd3xf'); } catch (e) { err = e.message; }
+  try { got = CU.base64Decode('EBESExQVFhcYGQ=='); } catch (e) { err = e.message; }
   ok(err === null, 'base64Decode 不抛异常', err || '');
   ok(got && eqBytes(got, EXPECT), 'base64Decode 结果正确',
     got ? `got=${Buffer.from(got).toString('hex')} want=${EXPECT.toString('hex')}` : 'null');

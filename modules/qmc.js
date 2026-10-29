@@ -376,7 +376,19 @@
   }
 
   // 公共解密函数: 从 raw key 派生 cipher 并解密音频
-  function decryptWithDerivedKey(audioBytes, rawKey, ext, tick) {
+  // ekey 的来源有两种形态: 字符串 (base64 文本) 或字节数组。
+  // 统一在这里转成字节数组 —— QmcDecryptKey 内部走 bytesToAscii -> base64Decode,
+  // 直接传字符串会被当成字节数组逐字符取, 静默产出垃圾。
+  function ekeyTextToBytes(ekey) {
+    if (ekey instanceof Uint8Array) return ekey;
+    if (Array.isArray(ekey)) return new Uint8Array(ekey);
+    const s = String(ekey).trim();
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+  }
+
+  function decryptWithDerivedKey(audioBytes, rawKey, ext, tick, meta) {
     try {
       const derivedKey = QmcDecryptKey(rawKey);
       tick(0.2);
@@ -387,7 +399,7 @@
       tick(0.95);
       if (isPlausibleAudio(audioOut, ext)) {
         tick(1.0);
-        return { audio: audioOut, ext: sniffAudioFormat(audioOut) || ext, meta: {}, cover: null };
+        return { audio: audioOut, ext: sniffAudioFormat(audioOut) || ext, meta: meta || {}, cover: null };
       }
       const head = Array.from(audioOut.slice(0, 16)).map(b => b.toString(16).padStart(2,'0')).join(' ');
       throw new Error('derived-key 解密后不像音频 (头 16 字节: ' + head + ')');
@@ -430,16 +442,26 @@ function _siteBase() {
       );
     }
     if (detected.type === 'v3-musicex') {
-      // V3 / MusicEx: 同样需要外部 ekey, 浏览器端已无获取途径。
-      throw new Error(
-        'MusicEx (V3) 文件的解密密钥同样不在文件内, 浏览器无法获得。\n'
-        + '\n'
-        + '请改用「借壳解密工具」: 在你自己已登录 QQ 音乐的电脑上运行, '
-        + '让客户端自己完成解密 (不需要你提供密钥)。\n'
-        + '工具下载: ' + _siteBase() + '/qqmusic-frida.zip\n'
-        + '\n'
-        + '解密得到的 .ogg / .mp3 再拖回本页面转格式即可。'
-      );
+      // MusicEx (V3): footer 只有元数据, 密钥不在文件内 —— 但 **ekey 可以由用户提供**。
+      // (早先这里写的是「浏览器无法获得」, 那句话是错的: 只是不能自动拿到,
+      //  用户自己从 QQ 音乐 API 取到后填进来就行。)
+      const footer = parseMusicExFooter(fileBytes);
+      const ekeyText = opts && opts.ekey;
+      if (!ekeyText) {
+        throw new Error(
+          'MusicEx (V3) 文件的解密密钥不在文件内, 需要你提供 ekey。\n'
+          + '\n'
+          + '获取方式: 用你的 QQ 音乐账号登录后调用 QQ 音乐 API 拿 songmid 对应的 ekey,\n'
+          + '然后在下面填入 (或用「借壳解密工具」在已登录的电脑上让客户端自己解密)。\n'
+          + '工具下载: ' + _siteBase() + '/qqmusic-frida.zip\n'
+          + '\n'
+          + '解密得到的 .ogg / .mp3 再拖回本页面转格式即可。'
+        );
+      }
+      // footer 缺失 → 裁掉默认 192 字节 (Rust oracle 的 PcV2MusicEx 固定长度)
+      const audioSize = footer ? footer.audioSize : (fileBytes.length - MUSICEX_FOOTER_SIZE);
+      const ekeyBytes = ekeyTextToBytes(ekeyText);
+      return decryptWithDerivedKey(fileBytes.subarray(0, audioSize), ekeyBytes, ext, tick, footer);
     }
 
     if (detected.type === 'v2-qtag') {
@@ -465,8 +487,7 @@ function _siteBase() {
       }
       // rawKey 必须是字节数组 (QmcDecryptKey 内部走 bytesToAscii -> base64Decode),
       // 传字符串会被当成字节数组逐字符取, 静默产出垃圾。
-      const ekeyRaw = new Uint8Array(ekey.length);
-      for (let i = 0; i < ekeyRaw.length; i++) ekeyRaw[i] = ekey.charCodeAt(i) & 0xff;
+      const ekeyRaw = ekeyTextToBytes(ekey);
       return decryptWithDerivedKey(fileBytes.subarray(0, audioSize), ekeyRaw, ext, tick);
     }
 
@@ -610,5 +631,69 @@ function _siteBase() {
     return true;
   }
 
-  global.QMC = { decode, detect, getExt };
+  // ---------- MusicEx (V3) footer 解析 --------------------------------------
+  //
+  // PC 客户端 19.57+ / Windows 22.x+ 的 musicex 格式。footer 只有元数据
+  // (song_id / quality / media_mid / media_filename), **不含密钥** ——
+  // ekey 必须另外提供。所以这一类文件的解密是「同一条 QMC2 cipher,
+  // 换个 key 来源」, 不是新算法。
+  //
+  // 字节布局 (由 test/xval-vectors/qmc_ref.py 的 parse_footer 逐字节对拍确认):
+  //   文件尾 16 字节: [payload_len u32 LE][version u32 LE]["musicex\0"]
+  //   payload_len = 0xC0 (192) 是 **整个 footer 长度**, 不是 inner 长度
+  //   inner (176B) = song_id(4) + quality1(4) + quality2(4)
+  //                  + media_mid[60] UTF-16LE + media_filename[100] UTF-16LE
+  //   两个字符串字段都以双零终止, 固定宽度只是上界 → 读到第一个双零即可
+  const MUSICEX_MAGIC = [0x6D, 0x75, 0x73, 0x69, 0x63, 0x65, 0x78, 0x00]; // "musicex\0"
+  const MUSICEX_FOOTER_SIZE = 192; // 0xC0 —— Rust oracle 的 PcV2MusicEx 固定 footer 长度
+
+  function readUtf16leCstr(bytes, offset, maxLen) {
+    let s = '';
+    const end = Math.min(offset + maxLen, bytes.length);
+    for (let i = offset; i < end - 1; i += 2) {
+      if (bytes[i] === 0 && bytes[i + 1] === 0) break;
+      s += String.fromCharCode(bytes[i] | (bytes[i + 1] << 8));
+    }
+    return s;
+  }
+
+  // 解析 musicex footer。成功返回 {type, footerSize, audioSize, songId, mid, mediaFilename}
+  // 不匹配返回 null。
+  function parseMusicExFooter(fileBytes) {
+    if (!fileBytes || fileBytes.length < 32) return null;
+    const n = fileBytes.length;
+    // 尾部 8 字节魔数
+    for (let i = 0; i < 8; i++) {
+      if (fileBytes[n - 8 + i] !== MUSICEX_MAGIC[i]) return null;
+    }
+    const payloadLen = (fileBytes[n - 16] | (fileBytes[n - 15] << 8) |
+                        (fileBytes[n - 14] << 16) | (fileBytes[n - 13] << 24)) >>> 0;
+    const version = (fileBytes[n - 12] | (fileBytes[n - 11] << 8) |
+                      (fileBytes[n - 10] << 16) | (fileBytes[n - 9] << 24)) >>> 0;
+    if (version !== 1) return null;
+    // payload_len 是整个 footer 长度; 至少要装下尾部 16 字节
+    if (payloadLen < 16 || payloadLen > n) return null;
+
+    // inner = footer 去掉尾部 16 字节 (payload_len / version / magic) 的前段
+    const footerStart = n - payloadLen;
+    const innerLen = payloadLen - 16;
+    if (innerLen < 12 + 60 + 100) return null; // 字段装不下
+    const inner = fileBytes.subarray(footerStart, footerStart + innerLen);
+
+    const songId = (inner[0] | (inner[1] << 8) | (inner[2] << 16) | (inner[3] << 24)) >>> 0;
+    const mid = readUtf16leCstr(inner, 12, 60);
+    const mediaFilename = readUtf16leCstr(inner, 12 + 60, 100);
+    if (!mid) return null; // 没有 mid 说明不是合法的 MusicEx footer
+
+    return {
+      type: 'v3-musicex',
+      footerSize: payloadLen,
+      audioSize: footerStart,
+      songId,
+      mid,
+      mediaFilename,
+    };
+  }
+
+  global.QMC = { decode, detect, getExt, parseMusicExFooter };
 })(typeof window !== 'undefined' ? window : globalThis);
