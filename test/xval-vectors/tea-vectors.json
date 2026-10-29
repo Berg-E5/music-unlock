@@ -1,0 +1,142 @@
+[
+ {
+  "name": "empty-body",
+  "cipher": "TM2k/LafIq8Eq6HuqKbTdA==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "short-body",
+  "cipher": "H5fIu6RFNobflWns/UWDzd5fxLu4geEX",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "aGVsbG8gdGVh",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-0",
+  "cipher": "TM2k/LafIq8Eq6HuqKbTdA==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-1",
+  "cipher": "H5fIu6RFNoZWu0qRoAjXOg==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "Aw==",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-2",
+  "cipher": "6UOumlBMOby01NL4+KrHVg==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "Awo=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-3",
+  "cipher": "PxIOfIGRLlw0li9SQkwdUA==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoR",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-4",
+  "cipher": "VgyOQtnzyhnfnEa3t9+JYQ==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGA==",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-5",
+  "cipher": "NVHT0byLb2CvzwQYcsafzQ==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-6",
+  "cipher": "AR6jDi6MK8/iKdIzZEPtwQ==",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8m",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-7",
+  "cipher": "wk2P6tV0bRJQJWMzZ2Nm1ljpvXY2NbDA",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLQ==",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-8",
+  "cipher": "TM2k/LafIq8X6+O15lpLHwO4o+rpZrdM",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-9",
+  "cipher": "H5fIu6RFNoafK5zvPCvOEg+a6b4LXuXu",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-10",
+  "cipher": "6UOumlBMObxliMjyZzqvWIR0SMfGJd8U",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7Qg==",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-11",
+  "cipher": "PxIOfIGRLly8WluBfWz+hsGbL0hBd6iT",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7Qkk=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-12",
+  "cipher": "VgyOQtnzyhlIlKGY0v2yR5CeUpnjd8xN",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7QklQ",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-13",
+  "cipher": "NVHT0byLb2Cj7QM/rSrWMWOhtKF7JczW",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7QklQVw==",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-14",
+  "cipher": "AR6jDi6MK8/X2wcEx3TtqdCJj0SfDoDq",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7QklQV14=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-len-15",
+  "cipher": "wk2P6tV0bRJQJWMzZ2Nm1pFS9M/oi2Khas4a6X5laSQ=",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AwoRGB8mLTQ7QklQV15l",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "body-32",
+  "cipher": "TM2k/LafIq9ZlOoTQxlvzxW3Sato2CrlkxziwXl/56ueIffudKSDCHrLIipNb4VY",
+  "key": "EBESExQVFhcYGRobHB0eHw==",
+  "plain": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ },
+ {
+  "name": "key-5a",
+  "cipher": "o07SN6RdkalRWo3RfTvQDX7KvVudmFahkfvtxARgayGLSsUe8LXj+A==",
+  "key": "WlpaWlpaWlpaWlpaWlpaWg==",
+  "plain": "emVyby1jaGVjayB0ZXN0IHBheWxvYWQ=",
+  "note": "oracle \u9020\u7684\u5408\u6cd5 TEA-CBC \u5bc6\u6587"
+ }
+]

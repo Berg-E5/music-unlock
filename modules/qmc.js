@@ -64,116 +64,190 @@
   }
 
   // ---------- v2: Map cipher (key 嵌入文件) ---------------------------------
+  //
+  // 对应 Rust um_crypto 的 v2_map (key.rs::key_compress + transform.rs)。
+  //
+  // 注意: 旧的 unlock-music 公式是 getMask(offset) = rotate(key[(offset²+71214)%n], ...)
+  // —— 每字节重新平方索引。那套是 v1 static cipher 的思路, 与 Rust 的 v2_map 不同,
+  // 两者只在 offset=0 时偶然一致 (索引都是 71214 % n), 之后就分道扬镳。
+  //
+  // Rust v2_map 的实际流程:
+  //   1. key_compress: 把 n 字节主密钥压缩成 128 字节调度表
+  //      result[i] = rotate_left(long_key[(i*i + 71214) % n], (idx+4) % 8)
+  //   2. transform:   按绝对偏移 pos 取调度表, 索引 = pos % 128 连续循环
+  //      边界: pos <= 0x7FFF 时索引 = pos % 128; pos > 0x7FFF 时先 % 0x7FFF 再 % 128
+  //      (所以 0x7FFF 的索引是 127, 0x8000 的索引是 1)
   class QmcMapCipher {
+    static KEY_SIZE = 128;
+    static OFFSET_BOUNDARY = 0x7fff;
+
     constructor(key) {
       if (!key || key.length === 0) throw new Error('QmcMapCipher: key 不能为空');
-      this.key = key;
       this.n = key.length;
+      this.sched = QmcMapCipher.keyCompress(key);
     }
-    static rotate(value, bits) {
-      const r = (bits + 4) % 8;
-      return ((value << r) | (value >> r)) & 0xff;
+
+    /** Rust v2_map/key.rs::key_compress —— 长密钥 -> 128 字节调度表 */
+    static keyCompress(longKey) {
+      const n = longKey.length;
+      const out = new Uint8Array(QmcMapCipher.KEY_SIZE);
+      for (let i = 0; i < QmcMapCipher.KEY_SIZE; i++) {
+        const idx = (i * i + 71214) % n;
+        const shift = (idx + 4) % 8;
+        const v = longKey[idx];
+        out[i] = ((v << shift) | (v >> shift)) & 0xff;
+      }
+      return out;
     }
-    getMask(offset) {
-      if (offset > 0x7fff) offset = offset % 0x7fff;
-      const idx = (offset * offset + 71214) % this.n;
-      return QmcMapCipher.rotate(this.key[idx], idx & 0x7);
+
+    /** Rust v2_map/transform.rs —— 按绝对偏移取 mask 字节 */
+    maskAt(pos) {
+      if (pos > QmcMapCipher.OFFSET_BOUNDARY) pos = pos % QmcMapCipher.OFFSET_BOUNDARY;
+      return this.sched[pos % QmcMapCipher.KEY_SIZE];
     }
+
     decrypt(buf, offset) {
-      for (let i = 0; i < buf.length; i++) {
-        buf[i] ^= this.getMask(offset + i);
+      // 按 0x7FFF 边界切段: 段内 pos 连续递增, 索引 = pos % 128 循环
+      let pos = offset;
+      let i = 0;
+      const total = buf.length;
+      while (i < total) {
+        let take, phase;
+        if (pos <= QmcMapCipher.OFFSET_BOUNDARY) {
+          take = Math.min(0x8000 - pos, total - i);
+          phase = pos % QmcMapCipher.KEY_SIZE;
+        } else {
+          const r = pos % QmcMapCipher.OFFSET_BOUNDARY;
+          take = Math.min(QmcMapCipher.OFFSET_BOUNDARY - r, total - i);
+          phase = r % QmcMapCipher.KEY_SIZE;
+        }
+        for (let k = 0; k < take; k++) {
+          buf[i + k] ^= this.sched[(phase + k) % QmcMapCipher.KEY_SIZE];
+        }
+        i += take;
+        pos += take;
       }
     }
   }
 
   // ---------- v2: RC4 cipher (segment-based) --------------------------------
+  //
+  // 对应 Rust um_crypto 的 v2_rc4 (hash.rs / segment_key.rs / cipher.rs)。
+  //
+  // 关键: RC4 是**连续流**, 不是每段重置。Rust 侧预先生成一段 0x1600 字节的
+  // 密钥流缓存, 各段按 skip 偏移去切连续片段; 旧的 unlock-music 移植每段都
+  // 重新 KSA 并从 -skipLen 重跑, 状态被重置 -> 解出来的是垃圾。
+  //
+  // 另外 Rust 的 get_segment_key 是:
+  //   denom = (id + 1) * seed            (u64 溢出取模)
+  //   value = int(hash / float(denom) * 100.0)
+  // first segment 用 value % n, other segment 用 value & 0x1FF (作为流内 skip)。
   class QmcRC4Cipher {
     static FIRST_SEGMENT_SIZE = 0x80;
-    static SEGMENT_SIZE = 5120;
+    static SEGMENT_SIZE = 0x1400;
+    static STREAM_CACHE_SIZE = 0x1600;
 
     constructor(key) {
       if (!key || key.length === 0) throw new Error('QmcRC4Cipher: key 不能为空');
       this.key = key;
       this.N = key.length;
-      // KSA
-      this.S = new Uint8Array(this.N);
-      for (let i = 0; i < this.N; i++) this.S[i] = i & 0xff;
+
+      // --- KSA: 状态长度 = 密钥长度 (非 256), 状态值是 u8 (i & 0xff) ---
+      const S = new Uint8Array(this.N);
+      for (let i = 0; i < this.N; i++) S[i] = i & 0xff;
       let j = 0;
       for (let i = 0; i < this.N; i++) {
-        j = (this.S[i] + j + this.key[i % this.N]) % this.N;
-        [this.S[i], this.S[j]] = [this.S[j], this.S[i]];
+        j = (j + S[i] + this.key[i % this.N]) % this.N;
+        const t = S[i]; S[i] = S[j]; S[j] = t;
       }
-      // hash base
-      this.hash = 1;
+      this.S = S;
+
+      // --- hash: Rust v2_rc4/hash.rs ---
+      let h = 1;
       for (let i = 0; i < this.N; i++) {
         const v = this.key[i];
         if (!v) continue;
-        const next = (this.hash * v) >>> 0;
-        if (next === 0 || next <= this.hash) break;
-        this.hash = next;
+        const next = Math.imul(h, v) >>> 0;
+        if (next === 0 || next <= h) break;
+        h = next;
+      }
+      this.hash = h;
+
+      // --- 预生成连续密钥流 (Rust cipher.rs 的 key_stream 缓存) ---
+      this.keyStream = new Uint8Array(QmcRC4Cipher.STREAM_CACHE_SIZE);
+      let ii = 0, jj = 0;
+      for (let k = 0; k < QmcRC4Cipher.STREAM_CACHE_SIZE; k++) {
+        ii = (ii + 1) % this.N;
+        jj = (jj + this.S[ii]) % this.N;
+        const t = this.S[ii]; this.S[ii] = this.S[jj]; this.S[jj] = t;
+        this.keyStream[k] = this.S[(this.S[ii] + this.S[jj]) % this.N];
       }
     }
 
-    getSegmentKey(id) {
-      const seed = this.key[id % this.N];
-      const idx = Math.floor((this.hash / ((id + 1) * seed)) * 100.0);
-      return idx % this.N;
+    /** Rust v2_rc4/segment_key.rs::get_segment_key */
+    getSegmentKey(id, seed) {
+      if (seed === 0) return 0;
+      // denom = (id+1) * seed, u64 溢出取模 (JS 用 Number 精度足够: id <= 2^32)
+      const denom = (id + 1) * seed;
+      // 注意: Rust 是 f64 除法, hash 已是 u32
+      return Math.floor(this.hash / denom * 100.0);
     }
 
-    encFirstSegment(buf, offset) {
-      for (let i = 0; i < buf.length; i++) {
-        buf[i] ^= this.key[this.getSegmentKey(offset + i)];
+    /** 首段 (0x80 字节): mask = key[get_segment_key(pos, key[pos%n]) % n] */
+    processFirstSegment(buf, start, length, offset) {
+      const n = this.N;
+      for (let j = 0; j < length; j++) {
+        const o = offset + j;
+        const segKey = this.getSegmentKey(o, this.key[o % n]);
+        buf[start + j] ^= this.key[segKey % n];
       }
     }
 
-    encASegment(buf, offset) {
-      const S = this.S.slice(0);
-      const skipLen =
-        (offset % QmcRC4Cipher.SEGMENT_SIZE) + this.getSegmentKey(Math.floor(offset / QmcRC4Cipher.SEGMENT_SIZE));
-      let j = 0, k = 0;
-      for (let i = -skipLen; i < buf.length; i++) {
-        j = (j + 1) % this.N;
-        k = (S[j] + k) % this.N;
-        [S[k], S[j]] = [S[j], S[k]];
-        if (i >= 0) {
-          buf[i] ^= S[(S[j] + S[k]) % this.N];
-        }
+    /** 后续段: mask = keyStream[skip + blockOff ..] —— 连续流切片 */
+    processOtherSegment(buf, start, length, offset) {
+      const n = this.N;
+      const segId = Math.floor(offset / QmcRC4Cipher.SEGMENT_SIZE);
+      const blockOff = offset % QmcRC4Cipher.SEGMENT_SIZE;
+      const seed = this.key[segId % n];
+      const skip = this.getSegmentKey(segId, seed) & 0x1ff;
+      const base = skip + blockOff;
+      for (let j = 0; j < length; j++) {
+        buf[start + j] ^= this.keyStream[base + j];
       }
     }
 
     decrypt(buf, offset) {
-      let toProcess = buf.length;
-      let processed = 0;
+      const total = buf.length;
+      let pos = offset;
+      let start = 0;
 
-      // first segment
-      if (offset < QmcRC4Cipher.FIRST_SEGMENT_SIZE) {
-        const len = Math.min(buf.length, QmcRC4Cipher.FIRST_SEGMENT_SIZE - offset);
-        this.encFirstSegment(buf.subarray(0, len), offset);
-        toProcess -= len;
-        processed += len;
-        offset += len;
+      if (pos < QmcRC4Cipher.FIRST_SEGMENT_SIZE) {
+        const take = Math.min(QmcRC4Cipher.FIRST_SEGMENT_SIZE - pos, total - start);
+        this.processFirstSegment(buf, start, take, pos);
+        start += take;
+        pos += take;
       }
 
-      // align
-      if (offset % QmcRC4Cipher.SEGMENT_SIZE !== 0 && toProcess > 0) {
-        const len = Math.min(QmcRC4Cipher.SEGMENT_SIZE - (offset % QmcRC4Cipher.SEGMENT_SIZE), toProcess);
-        this.encASegment(buf.subarray(processed, processed + len), offset);
-        toProcess -= len;
-        processed += len;
-        offset += len;
+      // 对齐到段边界
+      if (pos % QmcRC4Cipher.SEGMENT_SIZE !== 0 && start < total) {
+        const take = Math.min(
+          QmcRC4Cipher.SEGMENT_SIZE - (pos % QmcRC4Cipher.SEGMENT_SIZE),
+          total - start);
+        this.processOtherSegment(buf, start, take, pos);
+        start += take;
+        pos += take;
       }
 
-      // batch
-      while (toProcess > QmcRC4Cipher.SEGMENT_SIZE) {
-        this.encASegment(buf.subarray(processed, processed + QmcRC4Cipher.SEGMENT_SIZE), offset);
-        toProcess -= QmcRC4Cipher.SEGMENT_SIZE;
-        processed += QmcRC4Cipher.SEGMENT_SIZE;
-        offset += QmcRC4Cipher.SEGMENT_SIZE;
+      // 整段批处理
+      while (total - start > QmcRC4Cipher.SEGMENT_SIZE) {
+        this.processOtherSegment(buf, start, QmcRC4Cipher.SEGMENT_SIZE, pos);
+        start += QmcRC4Cipher.SEGMENT_SIZE;
+        pos += QmcRC4Cipher.SEGMENT_SIZE;
       }
 
-      // tail
-      if (toProcess > 0) {
-        this.encASegment(buf.subarray(processed), offset);
+      // 尾巴
+      if (start < total) {
+        this.processOtherSegment(buf, start, total - start, pos);
       }
     }
   }
@@ -369,17 +443,31 @@ function _siteBase() {
     }
 
     if (detected.type === 'v2-qtag') {
-      // QTag: file[len-8..len-4] = keySize LE, file[len-4..len] = "QTag"
-      // rawKey = file[audioSize..audioSize+keySize], includes "key,songId,mediaVer"
-      const keySize = detected.keySize;
-      const audioSize = fileBytes.length - keySize - 8;
-      const rawKeyWithMeta = fileBytes.subarray(audioSize, audioSize + keySize);
-      let commaIdx = -1;
-      for (let i = 0; i < rawKeyWithMeta.length; i++) {
-        if (rawKeyWithMeta[i] === 0x2C) { commaIdx = i; break; }
+      // QTag (Rust qmc/src/footer/): [密文][csv][payload_len u32 BE][b'QTag']
+      // csv 格式 = "ekey,rid,ver" 三段, ver 必须是 '2' (与 oracle parse_footer 一致)
+      const payloadLen = detected.keySize;
+      const audioSize = fileBytes.length - payloadLen - 8;
+      if (audioSize <= 0) {
+        throw new Error('QTag: payload 长度非法 (' + payloadLen + '), 文件总长 ' + fileBytes.length);
       }
-      const rawKey = commaIdx >= 0 ? rawKeyWithMeta.subarray(0, commaIdx) : rawKeyWithMeta;
-      return decryptWithDerivedKey(fileBytes.subarray(0, audioSize), rawKey, ext, tick);
+      const csvBuf = fileBytes.subarray(audioSize, audioSize + payloadLen);
+      const csv = Array.from(csvBuf).map(b => String.fromCharCode(b)).join('');
+      const parts = csv.split(',');
+      if (parts.length !== 3) {
+        throw new Error('QTag: CSV 格式错误 (应为 ekey,rid,ver 三段, 实际 ' + parts.length + ' 段)');
+      }
+      const [ekey, rid, ver] = parts;
+      if (ver !== '2') {
+        throw new Error('QTag: 版本不支持: ' + ver);
+      }
+      if (!/^\d+$/.test(rid)) {
+        throw new Error('QTag: ID 非法: ' + rid);
+      }
+      // rawKey 必须是字节数组 (QmcDecryptKey 内部走 bytesToAscii -> base64Decode),
+      // 传字符串会被当成字节数组逐字符取, 静默产出垃圾。
+      const ekeyRaw = new Uint8Array(ekey.length);
+      for (let i = 0; i < ekeyRaw.length; i++) ekeyRaw[i] = ekey.charCodeAt(i) & 0xff;
+      return decryptWithDerivedKey(fileBytes.subarray(0, audioSize), ekeyRaw, ext, tick);
     }
 
     if (detected.type === 'v1-embedded-key') {
@@ -429,10 +517,15 @@ function _siteBase() {
     const last4 = String.fromCharCode(fileBytes[fileBytes.length-4], fileBytes[fileBytes.length-3], fileBytes[fileBytes.length-2], fileBytes[fileBytes.length-1]);
     if (last4 === 'STag') return { type: 'v2-stag' };
     if (last4 === 'QTag') {
-      // QTag 后面 4 字节 = keySize
+      // QTag 结构 (Rust qmc/src/footer/): [payload][payload_len u32 **BE**][b'QTag']
+      // 长度字段在 QTag **前面**, 且是大端 —— 之前这里按 LE 读 file[len-8..len-4],
+      // 算出的 audioSize 全错, 切出来的 key 片段是垃圾, 于是报 "key length too short"。
       if (fileBytes.length < 12) return { type: 'unknown' };
-      const keySize = fileBytes[fileBytes.length-8] | (fileBytes[fileBytes.length-7] << 8) | (fileBytes[fileBytes.length-6] << 16) | (fileBytes[fileBytes.length-5] << 24);
-      return { type: 'v2-qtag', keySize };
+      const payloadLen = (fileBytes[fileBytes.length - 8] * 0x1000000) +
+        (fileBytes[fileBytes.length - 7] << 16) +
+        (fileBytes[fileBytes.length - 6] << 8) +
+        fileBytes[fileBytes.length - 5];
+      return { type: 'v2-qtag', keySize: payloadLen };
     }
     // V3: "musicex\0" marker at end (8 bytes)
     // 注意: 只看魔数, 不校验 version。

@@ -8,6 +8,8 @@
 # 测试 (V=84 后精简: ekey 链路已整体下线)
 #   cipher-harness.js    qmc-mobile 算法往返 (VM 加载 modules, 无浏览器)
 #   e2e-harness.js       真实浏览器打真实站点 + 真实 .ncm 文件
+#   derived-key-harness.js  ekey 解密链路 vs Python oracle (5 组向量逐字节)
+#   tea-check.js         TEA-CBC 对拍 (20 组 oracle 造的合法密文)
 #
 # 已随 ekey 下线一并移除 (备份在 /tmp/removed-backup):
 #   cross-ref-harness.js  db-verify-harness.js  brute-harness.js  ext-harness.js
@@ -29,11 +31,15 @@ export NODE_PATH="${NODE_PATH:-/tmp/e2e-deps/node_modules}"
 
 echo "node $(node -v)"
 
-run "1/2 cipher-harness (qmc-mobile 算法往返)" test/cipher-harness.js
+run "1/4 cipher-harness (qmc-mobile 算法往返)" test/cipher-harness.js
+
+run "2/4 derived-key-harness (ekey 链路 vs oracle)" test/derived-key-harness.js
+
+run "3/4 tea-check (TEA-CBC 对拍)" test/tea-check.js
 
 if [ "${1:-}" != "--fast" ]; then
   if node -e "require('playwright')" 2>/dev/null; then
-    run "2/2 e2e-harness (真浏览器)" test/e2e-harness.js
+    run "4/4 e2e-harness (真浏览器)" test/e2e-harness.js
   else
     echo ""
     echo "⚠️  跳过 e2e: playwright 未安装"

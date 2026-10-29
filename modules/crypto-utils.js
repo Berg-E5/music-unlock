@@ -269,21 +269,28 @@
     return rhex(state[0]) + rhex(state[1]) + rhex(state[2]) + rhex(state[3]);
   }
 
-  // ---------- Tencent Tea cipher (used by QMC v2 key decryption) -----------
+  // ---------- Tencent Tea cipher (used by QMC v2 key decryption) ----------
   // 标准 32 rounds TEA + CBC 包装, 跟 unlock-music QmcWasm 一致
   const TEA_DELTA = 0x9E3779B9;
+  // Tencent 的 tc_tea 变体用 16 轮 (不是标准 TEA 的 32 轮),
+  // 与 Rust um_crypto / test/xval-vectors/qmc_ref.py 的 TEA_ROUNDS=16 一致。
+  const TEA_ROUNDS = 16;
 
   function teaDecryptBlock(block, key) {
     // block: Uint8Array 8 bytes, key: 16 bytes
     // 使用大端 (TCP/IP 网络序) — 跟 unlock-music ntohl 一致
+    //
+    // 轮数是 16 不是 32: 这是 Tencent 的 tc_tea 变体 (TEA_ROUNDS=16),
+    // 与 Rust um_crypto / qmc_ref.py 一致。32 轮解出来的是垃圾,
+    // 会以 "Tea CBC: zero check failed" 报错。
     const v = new DataView(block.buffer, block.byteOffset, 8);
     let y = v.getUint32(0, false);  // big-endian read
     let z = v.getUint32(4, false);
     const k = new DataView(key.buffer, key.byteOffset, 16);
     const k0 = k.getUint32(0, false), k1 = k.getUint32(4, false);
     const k2 = k.getUint32(8, false), k3 = k.getUint32(12, false);
-    let sum = (TEA_DELTA * 32) >>> 0;
-    for (let i = 0; i < 32; i++) {
+    let sum = (TEA_DELTA * TEA_ROUNDS) >>> 0;
+    for (let i = 0; i < TEA_ROUNDS; i++) {
       z = (z - (((y << 4) + k2) ^ (y + sum) ^ ((y >>> 5) + k3))) >>> 0;
       y = (y - (((z << 4) + k0) ^ (z + sum) ^ ((z >>> 5) + k1))) >>> 0;
       sum = (sum - TEA_DELTA) >>> 0;
@@ -303,7 +310,7 @@
     const k0 = k.getUint32(0, false), k1 = k.getUint32(4, false);
     const k2 = k.getUint32(8, false), k3 = k.getUint32(12, false);
     let sum = 0;
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < TEA_ROUNDS; i++) {
       sum = (sum + TEA_DELTA) >>> 0;
       y = (y + (((z << 4) + k0) ^ (z + sum) ^ ((z >>> 5) + k1))) >>> 0;
       z = (z + (((y << 4) + k2) ^ (y + sum) ^ ((y >>> 5) + k3))) >>> 0;
@@ -363,16 +370,24 @@
   }
 
   // ---------- base64 工具 (atob/btoa 包装) ---------------------------------
+  //
+  // 环境判定用「全局 Buffer 存不存在」, 不能用 BufferUtil 自己的方法 ——
+  // BufferUtil.fromUtf8 在任何环境都存在, 拿它当判据会永远走进 Node 分支,
+  // 然后去调一个根本不存在的 BufferUtil.from, 于是任何环境都抛错。
+  //
+  // 浏览器 / Web Worker: 只有 atob
+  // Node: 有 Buffer.from(str, 'base64')
   function base64Decode(str) {
-    if (typeof BufferUtil.fromUtf8 === 'undefined') {
-      // 浏览器环境
-      const bin = atob(str);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
+    if (typeof globalThis !== 'undefined' &&
+        typeof globalThis.Buffer !== 'undefined' &&
+        typeof globalThis.Buffer.from === 'function') {
+      return new Uint8Array(globalThis.Buffer.from(str, 'base64'));
     }
-    // Node 环境
-    return new Uint8Array(BufferUtil.from(str, 'base64'));
+    // 浏览器 / Web Worker 环境
+    const bin = atob(str);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
   }
 
   // ---------- Export ----------------------------------------------------------
