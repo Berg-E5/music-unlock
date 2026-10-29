@@ -173,15 +173,26 @@ function makeWav(n = 8000) {
     !/^\[worker\]/.test(e) && !/console\.error: \[worker\]/.test(e));
   ok(realErrors.length === 0, '无新增非 worker 异常', realErrors.slice(0, 5).join('\n      '));
   // 关键: 必须走 V3/MusicEx 路径, 而不是误判成 v1-static
-  const workerErr = errors.slice(errBefore).find(e => /musicex|MusicEx|借壳/.test(e));
+  // V3 的 ekey 可以由用户提供, 所以正确行为是「提示需要 ekey」+ 给出借壳工具作备选,
+  // 而不是笼统地说「浏览器无法获得」(那句话是错的)。
+  const workerErr = errors.slice(errBefore).find(e => /musicex|MusicEx|ekey|借壳/.test(e));
   ok(!!workerErr && !/末尾标记/.test(workerErr),
-    'musicex 文件走 V3 路径并报借壳指引', String(workerErr).slice(0, 200));
+    'musicex 文件走 V3 路径并提示需要 ekey', String(workerErr).slice(0, 200));
+  ok(/需要你提供 ekey|ekey/.test(String(workerErr || '')),
+    'V3 报错说明 ekey 可由用户提供 (不是「浏览器无法获得」)',
+    String(workerErr || '').slice(0, 200));
+  ok(!/浏览器无法获得|同样不在文件内/.test(String(workerErr || '')),
+    'V3 报错不再声称密钥无法获得');
 
   // G. 站点地址必须是运行时推导的 —— 换域名部署不该需要改代码
   const origin = new URL(page.url()).origin;
   const zipLinks = await page.$$eval('a[data-zip]', as => as.map(a => a.getAttribute('href')));
-  ok(zipLinks.length === 3 && zipLinks.every(h => h === '/qqmusic-frida.zip'),
-    'zip 下载链接钉到站点根 (支持子路径部署)', zipLinks.join(' '));
+  // app.js 的 fixAssetBase() 在运行时把 href 改写成 <站点根路径> + ZIP,
+  // 所以这里看到的是 '/qqmusic-frida.zip' (根路径部署时) —— 这正是子路径部署
+  // 需要的: 站点在 /music/ 下时会变成 '/music/qqmusic-frida.zip'。
+  // 数量不能硬编码 —— 页面文案增删链接会变, 只断言「每个都指向同一个 zip」。
+  ok(zipLinks.length > 0 && zipLinks.every(h => h.endsWith('/qqmusic-frida.zip')),
+    'zip 下载链接指向运行时推导的站点根 (支持子路径部署)', zipLinks.join(' '));
   ok(/工具下载:\s*https?:\/\/[^\s]*\/qqmusic-frida\.zip/.test(txt),
     '报错文案里的工具链接来自运行时 origin, 非硬编码');
   // 所有出现在页面上的绝对 URL 都必须等于当前 origin (不能有别的域名)
