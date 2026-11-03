@@ -32,21 +32,23 @@ export NODE_PATH="${NODE_PATH:-/tmp/e2e-deps/node_modules}"
 
 echo "node $(node -v)"
 
-run "1/6 cipher-harness (qmc-mobile 算法往返)" test/cipher-harness.js
+run "1/7 cipher-harness (qmc-mobile 算法往返)" test/cipher-harness.js
 
-run "2/6 derived-key-harness (ekey 链路 vs oracle)" test/derived-key-harness.js
+run "2/7 derived-key-harness (ekey 链路 vs oracle)" test/derived-key-harness.js
 
-run "3/6 v3-harness (MusicEx V3 链路 vs oracle)" test/v3-harness.js
+run "3/7 v3-harness (MusicEx V3 链路 vs oracle)" test/v3-harness.js
 
-run "4/6 tea-check (TEA-CBC 对拍)" test/tea-check.js
+run "4/7 tea-check (TEA-CBC 对拍)" test/tea-check.js
+
+run "5/7 qq-ekey-harness (ekey 获取协议)" test/qq-ekey-harness.js
 
 if [ "${1:-}" != "--fast" ]; then
   if node -e "require('playwright')" 2>/dev/null; then
-    run "5/6 e2e-harness (真浏览器)" test/e2e-harness.js
+    run "6/7 e2e-harness (真浏览器)" test/e2e-harness.js
     # V3 端到端: 真实浏览器 + 真 Ogg 音频 -> 解密 -> 转码 -> 下载
     # 需要真音频向量 (make_v3_real.py 造, 依赖 ffmpeg)
     if [ -f test/xval-vectors/v3-real-map.mgg ]; then
-      run "6/6 v3-e2e-harness (真浏览器 V3 链路)" test/v3-e2e-harness.js
+      run "7/7 v3-e2e-harness (真浏览器 V3 链路)" test/v3-e2e-harness.js
     else
       echo ""
       echo "⚠️  跳过 v3-e2e: 缺真音频向量 (跑 python3 test/xval-vectors/make_v3_real.py)"

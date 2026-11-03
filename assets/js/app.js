@@ -477,4 +477,186 @@
       if (!dropzone.contains(e.target)) e.preventDefault();
     });
   });
+
+  // ---------- QQ 音乐 ekey 自动获取 ----------
+  //
+  // 协议逆向自 QQ 音乐 PC 客户端 (QQMusic_Setup_2276.exe / QQMusic_Protocol.dll):
+  //   module = music.vkey.GetEVkey, method = CgiGetEVkey
+  //   响应 midurlinfo[].ekey 就是 V3/MusicEx 加密文件的密钥
+  //   songtype 必须是 1 (否则只返回 vkey), musicu.fcg 必须用 GET
+  //
+  // 浏览器直连 musicu.fcg 会被 CORS 拦 (上游不发 Access-Control-Allow-Origin),
+  // 所以走本站代理 /qq/ekey。
+  const qq = {
+    cookie: '',
+    uin: '',
+    polling: null,
+  };
+
+  function apiRoot() {
+    return new URL('./', location.href).pathname;
+  }
+
+  function qqLoginModal() { return document.getElementById('qq-login-modal'); }
+
+  function qqSetStatus(msg, kind) {
+    const el = document.getElementById('qq-login-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = kind === 'err' ? '#ff6b6b' : (kind === 'ok' ? '#4ade80' : '#8b93a7');
+  }
+
+  function qqShowQr(qrUrl) {
+    const box = document.getElementById('qq-qr-box');
+    if (!box) return;
+    box.innerHTML = '';
+    const img = document.createElement('img');
+    // 直接从 ptlogin2 取图 —— 服务器 IP 被 QQ 登录体系封了 (403),
+    // 但用户浏览器的 IP 没这问题。服务端代理取不到, 必须浏览器直连。
+    img.src = qrUrl;
+    img.crossOrigin = 'anonymous';
+    img.style.width = '200px';
+    img.style.height = '200px';
+    img.style.display = 'block';
+    img.alt = 'QQ 音乐登录二维码';
+    img.onerror = () => {
+      box.innerHTML = '<span style="color:#c00;font-size:13px;padding:40px 10px;display:block">二维码加载失败</span>';
+    };
+    box.appendChild(img);
+  }
+
+  async function qqStartLogin() {
+    const modal = qqLoginModal();
+    modal.hidden = false;
+    qqSetStatus('正在获取二维码…');
+    try {
+      const r = await fetch(apiRoot() + 'qq/login/start');
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || '获取二维码失败');
+      qqShowQr(j.qrUrl);
+      qqSetStatus('请用 QQ 音乐 App 扫码');
+
+      if (qq.polling) clearInterval(qq.polling);
+      qq.polling = setInterval(async () => {
+        try {
+          const pr = await fetch(apiRoot() + 'qq/login/poll?token=' + encodeURIComponent(j.token));
+          const pj = await pr.json();
+          if (pj.status === 'done' && pj.cookies) {
+            clearInterval(qq.polling);
+            qq.polling = null;
+            qq.cookie = typeof pj.cookies === 'string'
+              ? pj.cookies
+              : Object.entries(pj.cookies).map(([k, v]) => k + '=' + v).join('; ');
+            qq.uin = (pj.cookies && (pj.cookies.uin || pj.cookies.qqmusic_uin)) || '';
+            qqSetStatus('登录成功 ✓', 'ok');
+            setTimeout(() => { modal.hidden = true; }, 900);
+          } else if (pj.status === 'scanned') {
+            qqSetStatus('已扫码，请在手机上确认');
+          } else if (pj.status === 'expired') {
+            clearInterval(qq.polling);
+            qq.polling = null;
+            qqSetStatus('二维码已过期，请重新扫码', 'err');
+          }
+        } catch (e) {
+          /* 轮询失败不打断, 下一轮重试 */
+        }
+      }, 2000);
+    } catch (e) {
+      qqSetStatus('获取二维码失败: ' + e.message, 'err');
+    }
+  }
+
+  // 从已选文件里找 musicex, 取它的 mid / mediaFilename。
+  // footer 在文件尾部, 只需要尾部一小段, 但 File.slice 更省 —— 这里直接读全量,
+  // 加密音乐文件通常几十 MB 以内, 且只在用户点按钮时读一次。
+  async function findMusicExMeta() {
+    for (const item of state.items) {
+      const f = item.file;
+      if (!f) continue;
+      if (!/\.(mgg|mflac|mmp4|qmc0|qmcflac|qmcogg)$/i.test(f.name)) continue;
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        const meta = window.QQEkey.parseMusicExMeta(buf);
+        if (meta) return { meta: meta, name: f.name };
+      } catch (e) {
+        /* 读不了就跳过这个文件 */
+      }
+    }
+    return null;
+  }
+
+  async function qqAutoEkey() {
+    const btn = document.getElementById('qq-ekey-btn');
+    const input = document.getElementById('qmc-ekey');
+    if (!btn || !input) return;
+
+    if (!qq.cookie) {
+      toast('请先点「扫码登录」, 登录后才能取 ekey', 'error', 4000);
+      qqStartLogin();
+      return;
+    }
+
+    const found = await findMusicExMeta();
+    if (!found) {
+      toast('队列里没有 MusicEx (.mgg/.mflac) 文件, 没法自动取 ekey', 'error', 4000);
+      return;
+    }
+
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '获取中…';
+    try {
+      const r = await fetch(apiRoot() + 'qq/ekey', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mid: found.meta.mid,
+          filename: found.meta.mediaFilename,
+          cookie: qq.cookie,
+          uin: qq.uin,
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || ('HTTP ' + r.status) + (j.hint ? ' — ' + j.hint : ''));
+      input.value = j.ekey;
+      toast('ekey 已获取并填入 ✓', 'ok', 3000);
+    } catch (e) {
+      toast('获取 ekey 失败: ' + e.message, 'error', 6000);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+
+  const qqLoginBtn = document.getElementById('qq-login-btn');
+  if (qqLoginBtn) qqLoginBtn.addEventListener('click', qqStartLogin);
+  const qqEkeyBtn = document.getElementById('qq-ekey-btn');
+  if (qqEkeyBtn) qqEkeyBtn.addEventListener('click', qqAutoEkey);
+  // 回退: 手动粘贴 cookie
+  const qqCookieSubmit = document.getElementById('qq-cookie-submit');
+  if (qqCookieSubmit) qqCookieSubmit.addEventListener('click', () => {
+    const ta = document.getElementById('qq-cookie-input');
+    if (!ta) return;
+    const val = (ta.value || '').trim();
+    if (!val) { toast('请先粘贴 Cookie', 'error', 3000); return; }
+    qq.cookie = val;
+    const m = val.match(/(?:^|;\s*)(?:uin|qqmusic_uin)=([^;]+)/);
+    qq.uin = m ? m[1] : '';
+    qqSetStatus('Cookie 已生效 ✓', 'ok');
+    toast('Cookie 已保存, 现在可以点「自动获取 ekey」', 'ok', 3500);
+  });
+
+  const qqCloseBtn = document.getElementById('qq-login-close');
+  if (qqCloseBtn) qqCloseBtn.addEventListener('click', () => {
+    if (qq.polling) { clearInterval(qq.polling); qq.polling = null; }
+    qqLoginModal().hidden = true;
+  });
+  const qqModal = qqLoginModal();
+  if (qqModal) qqModal.addEventListener('click', (e) => {
+    if (e.target === qqModal) {
+      if (qq.polling) { clearInterval(qq.polling); qq.polling = null; }
+      qqModal.hidden = true;
+    }
+  });
+
 })();
