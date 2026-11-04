@@ -442,17 +442,18 @@ function _siteBase() {
       );
     }
     if (detected.type === 'v3-musicex') {
-      // MusicEx (V3): footer 只有元数据, 密钥不在文件内 —— 但 **ekey 可以由用户提供**。
-      // (早先这里写的是「浏览器无法获得」, 那句话是错的: 只是不能自动拿到,
-      //  用户自己从 QQ 音乐 API 取到后填进来就行。)
+      // MusicEx (V3): footer 只有元数据, 密钥不在文件内 —— 网页端拿不到。
+      // (解密实现仍在: 若调用方通过 msg.ekey 传入密钥, 依然能解;
+      //  但页面上不再提供输入入口, 所以默认只能引导走借壳工具。)
       const footer = parseMusicExFooter(fileBytes);
       const ekeyText = opts && opts.ekey;
       if (!ekeyText) {
         throw new Error(
-          'MusicEx (V3) 文件的解密密钥不在文件内, 需要你提供 ekey。\n'
+          '这类文件 (MusicEx V3, 文件尾带 musicex\\0) 的解密密钥不在文件内, '
+          + '浏览器拿不到。\n'
           + '\n'
-          + '获取方式: 用你的 QQ 音乐账号登录后调用 QQ 音乐 API 拿 songmid 对应的 ekey,\n'
-          + '然后在下面填入 (或用「借壳解密工具」在已登录的电脑上让客户端自己解密)。\n'
+          + '请改用「借壳解密工具」: 在你自己已登录 QQ 音乐的电脑上运行, '
+          + '让客户端自己完成解密 (不需要你提供密钥)。\n'
           + '工具下载: ' + _siteBase() + '/qqmusic-frida.zip\n'
           + '\n'
           + '解密得到的 .ogg / .mp3 再拖回本页面转格式即可。'
@@ -476,7 +477,7 @@ function _siteBase() {
       const csv = Array.from(csvBuf).map(b => String.fromCharCode(b)).join('');
       const parts = csv.split(',');
       if (parts.length !== 3) {
-        throw new Error('QTag: CSV 格式错误 (应为 ekey,rid,ver 三段, 实际 ' + parts.length + ' 段)');
+        throw new Error('QTag: CSV 格式错误 (应为 密钥,rid,版本 三段, 实际 ' + parts.length + ' 段)');
       }
       const [ekey, rid, ver] = parts;
       if (ver !== '2') {

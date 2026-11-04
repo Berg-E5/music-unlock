@@ -173,14 +173,16 @@ function makeWav(n = 8000) {
     !/^\[worker\]/.test(e) && !/console\.error: \[worker\]/.test(e));
   ok(realErrors.length === 0, '无新增非 worker 异常', realErrors.slice(0, 5).join('\n      '));
   // 关键: 必须走 V3/MusicEx 路径, 而不是误判成 v1-static
-  // V3 的 ekey 可以由用户提供, 所以正确行为是「提示需要 ekey」+ 给出借壳工具作备选,
-  // 而不是笼统地说「浏览器无法获得」(那句话是错的)。
-  const workerErr = errors.slice(errBefore).find(e => /musicex|MusicEx|ekey|借壳/.test(e));
+  // 页面上已撤掉 ekey 输入入口 (UI 不再露出), 所以 V3 与 STag 一样:
+  // 浏览器端拿不到密钥 -> 只能引导到借壳解密工具。
+  const workerErr = errors.slice(errBefore).find(e => /musicex|MusicEx|借壳/.test(e));
   ok(!!workerErr && !/末尾标记/.test(workerErr),
-    'musicex 文件走 V3 路径并提示需要 ekey', String(workerErr).slice(0, 200));
-  ok(/需要你提供 ekey|ekey/.test(String(workerErr || '')),
-    'V3 报错说明 ekey 可由用户提供 (不是「浏览器无法获得」)',
-    String(workerErr || '').slice(0, 200));
+    'musicex 文件走 V3 路径并给出明确指引', String(workerErr).slice(0, 200));
+  ok(/借壳|qqmusic-frida/.test(String(workerErr || '')),
+    'V3 报错引导到借壳解密工具 (页面不再索要 ekey)',
+    String(workerErr).slice(0, 200));
+  ok(!/ekey/i.test(String(workerErr || '')),
+    'V3 报错文案不含 ekey 字样', String(workerErr).slice(0, 200));
   ok(!/浏览器无法获得|同样不在文件内/.test(String(workerErr || '')),
     'V3 报错不再声称密钥无法获得');
 

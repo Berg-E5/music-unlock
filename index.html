@@ -57,10 +57,6 @@
             <option value="320" selected>320 kbps</option>
           </select>
           <span style="color:#999;font-size:12px;margin-left:4px">(默认转码为 MP3)</span>
-          <span style="color:#5a6275;margin-left:10px">V3 ekey：</span>
-          <input type="text" id="qmc-ekey" placeholder="MusicEx (V3) 文件才需要, 可留空"
-                 autocomplete="off" spellcheck="false"
-                 style="padding:4px 8px;border-radius:4px;border:1px solid #ccc;width:260px;font-size:13px">
         </div>
 
 
@@ -68,17 +64,7 @@
         <div class="dz-note">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
           <span><code>.mgg</code> / <code>.mflac</code> 的密钥不在文件里，网页端拿不到 ——
-            两条路任选：<b>①</b> 用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a> 在你自己已登录的电脑上直接解完再拖回来；
-            <b>②</b> 用 <a data-zip="qqmusic-ekey.zip" href="qqmusic-ekey.zip" download>ekey 提取器</a> 从你本机的 QQ 音乐客户端读出票据、换到 ekey 后填进上面的「V3 ekey」框</span>
-        </div>
-
-        <!-- MusicEx (V3) 的 ekey 可以由用户提供 -> 上面那个输入框就是给它用的 -->
-        <div class="dz-note" id="v3-ekey-note">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-          <span>MusicEx (V3, 文件尾带 <code>musicex\0</code>) 的密钥不在文件里，但<strong>可以由你提供</strong> ——
-            用你的账号从 QQ 音乐接口取到 ekey 后填进上面的「V3 ekey」框即可解密；
-            没有的话，用 <a data-zip="qqmusic-ekey.zip" href="qqmusic-ekey.zip" download>ekey 提取器</a> 从你本机的 QQ 音乐客户端读出票据来换（不用重新登录，客户端已经登录过了）；
-            也可以用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a> 直接解完</span>
+            请用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a> 在你自己已登录的电脑上直接解完再拖回来</span>
         </div>
 
         <input type="file" id="file-input" multiple
@@ -378,8 +364,7 @@
             <p><strong>需要额外工具：</strong></p>
             <ul>
               <li>QQ 音乐 <strong>.mgg</strong> / <code>.mflac</code>（含 .mgg2 / .mflac2 等新版）：每首歌的密钥不在文件里，浏览器拿不到。
-                  用 <a data-zip="qqmusic-ekey.zip" href="qqmusic-ekey.zip" download>ekey 提取器</a>（读你本机已登录的 QQ 音乐客户端，换到 ekey 填进「V3 ekey」框），
-                  或用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>（让客户端自己解密），解完再用本页面转格式。</li>
+                  用 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>（让客户端自己解密），解完再用本页面转格式。</li>
             </ul>
             <p><strong>实验性 / 部分支持：</strong></p>
             <ul>
@@ -443,7 +428,7 @@
             <p>因为它们的<b>密钥不在文件里</b>。老格式（<code>.qmc0</code> / <code>.qmcflac</code> 等）密钥直接写在文件头，浏览器拿到就能解；而 <code>.mgg</code> / <code>.mflac</code> 每首歌的密钥由 QQ 服务器单独下发，不存在任何公开的获取入口。</p>
             <p>所以这类文件只能<b>借用你自己的 QQ 音乐客户端来解密</b>：</p>
             <ol>
-              <li>下载 <a data-zip="qqmusic-ekey.zip" href="qqmusic-ekey.zip" download>ekey 提取器</a>（或 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>），解压到本地</li>
+              <li>下载 <a data-zip="qqmusic-frida.zip" href="qqmusic-frida.zip" download>借壳解密工具</a>，解压到本地</li>
               <li>在这台电脑（已登录 QQ 音乐）上运行 <code>run.bat</code> 或 <code>watch.bat</code></li>
               <li>得到 <code>.ogg</code> / <code>.mp3</code> 后，拖回本页面上方的「已解密文件」区转格式</li>
             </ol>
@@ -486,6 +471,6 @@
   <!-- jszip 本地化: 打包下载全部时用, 走本地不走 CDN -->
   <script src="modules/jszip.min.js?v=103"></script>
   <!-- 主应用（所有解密逻辑在 worker 里） -->
-  <script src="assets/js/app.js?v=106"></script>
+  <script src="assets/js/app.js?v=107"></script>
 </body>
 </html>

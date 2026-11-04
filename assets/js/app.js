@@ -66,7 +66,7 @@
   // ---------- Worker ----------
   function getWorker() {
     if (state.worker) return state.worker;
-    state.worker = new Worker('assets/js/worker.js?v=105');
+    state.worker = new Worker('assets/js/worker.js?v=106');
     state.worker.addEventListener('message', onWorkerMessage);
     state.worker.addEventListener('error', (e) => {
       toast('Worker 错误: ' + e.message, 'error', 6000);
@@ -204,12 +204,6 @@
         msg.outputFormat = 'mp3';
         const br = parseInt((document.getElementById('mp3-bitrate') || {}).value, 10);
         if (br) msg.mp3Bitrate = br;
-        // QMC MusicEx (V3) 的 ekey (base64 文本) —— 只有填了才传, 空则让 worker 报缺 ekey
-        const ekeyInput = document.getElementById('qmc-ekey');
-        if (ekeyInput && ekeyInput.value) {
-          const ekey = ekeyInput.value.trim();
-          if (ekey) msg.ekey = ekey;
-        }
         getWorker().postMessage(msg);
       }
     }

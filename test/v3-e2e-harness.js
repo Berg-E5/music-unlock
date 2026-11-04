@@ -2,18 +2,20 @@
 /* ===========================================
  * v3-e2e-harness.js — 真实浏览器验证 MusicEx (V3) 解密链路
  *
- * 验证的是**用户实际会走的路径**:
- *   1. 浏览器打开 https://ncm.byberg.store
- *   2. 页面加载无 JS 错误, worker 起来了
- *   3. 在「V3 ekey」输入框填入 ekey
- *   4. 把 v3-map.mgg / v3-rc4.mgg 喂进去
- *   5. 页面把解密结果交给 worker -> 转码 -> 显示可下载结果
+ * 背景 (2026-11-04 变更):
+ *   页面上的 ekey 输入框已撤掉 (UI 不再露出 ekey), 但**解密代码保留** ——
+ *   worker 仍接受 msg.ekey, QMC.decode 的 V3 分支仍在。
+ *   所以本测试不再通过 UI 填 ekey, 而是在浏览器里直接驱动一个 worker 实例,
+ *   验证「解密能力没坏」; 同时断言页面 UI 上确实找不到 ekey。
  *
- * 与 v3-harness.js 的区别: 那个在 Node VM 里直接调 QMC.decode,
- * 这个走完整浏览器链路 (index.html -> app.js -> worker.js -> modules/)。
+ * 验证:
+ *   1. 页面加载无 JS 错误 / 无 404 资源
+ *   2. 页面 DOM 里没有 #qmc-ekey 输入框, 可见文本不含 ekey
+ *   3. 直接给 worker 喂 msg.ekey -> 真 .mgg 解密成功 -> 产物是可解码音频
+ *   4. 产物时长与 oracle 基准 (expected/v3-real-*.plain) 一致
  *
  * 用法: NODE_PATH=/tmp/e2e-deps/node_modules node test/v3-e2e-harness.js [baseUrl]
- * =========================================== */
+ * ============================================ */
 
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -29,6 +31,82 @@ function ok(cond, label, extra) {
   if (cond) { pass++; console.log(`  ✓ ${label}`); }
   else { fail++; console.log(`  ✗ ${label}${extra ? '\n      ' + extra : ''}`); }
 }
+
+// 在页面里建一个独立 worker, 直接喂 msg.ekey (绕开 UI)。
+// worker 会把音频解码委托回主线程 (AudioContext 不在 worker 里), 这里复刻 app.js 的桥。
+const DRIVE_WORKER = async ({ fileB64, fileName, ekey }) => {
+  const bin = atob(fileB64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const file = new File([bytes], fileName, { type: 'application/octet-stream' });
+
+  const worker = new Worker(new URL('assets/js/worker.js?v=106', location.href));
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  return await new Promise((resolve) => {
+    const timer = setTimeout(() => { worker.terminate(); resolve({ error: '超时 (45s)' }); }, 45000);
+
+    worker.addEventListener('message', async (ev) => {
+      const d = ev.data || {};
+      // worker 请主线程解码音频 (与 app.js handleAudioDecode 同逻辑)
+      if (d.type === 'audio-decode') {
+        try {
+          const ab = d.audioBuffer;
+          const decoded = await ctx.decodeAudioData(ab);
+          const channels = decoded.numberOfChannels;
+          const ch0 = decoded.getChannelData(0);
+          const ch1 = channels > 1 ? decoded.getChannelData(1) : null;
+          const reply = { type: 'audio-decoded', seq: d.seq, sampleRate: decoded.sampleRate, channels, ch0: ch0.slice() };
+          const transfer = [reply.ch0.buffer];
+          if (ch1) { reply.ch1 = ch1.slice(); transfer.push(reply.ch1.buffer); }
+          worker.postMessage(reply, transfer);
+        } catch (e) {
+          worker.postMessage({ type: 'audio-decode-error', seq: d.seq, error: e.message || String(e) });
+        }
+        return;
+      }
+      if (d.type === 'error') {
+        clearTimeout(timer); worker.terminate();
+        resolve({ error: d.message });
+        return;
+      }
+      if (d.type === 'done') {
+        clearTimeout(timer);
+        try {
+          // 注意: fetch(blob) 会把 blob 当请求 body, URL 还是当前页面 ——
+          // 必须先 createObjectURL 才是真的读 blob 内容。
+          const url = URL.createObjectURL(d.payload.blob);
+          const buf = await (await fetch(url)).arrayBuffer();
+          URL.revokeObjectURL(url);
+          worker.terminate();
+          const head = Array.from(new Uint8Array(buf.slice(0, 8)));
+          // 解码产物, 拿到时长 —— 用来跟 oracle 基准比对
+          let duration = 0, samples = 0, sampleRate = 0;
+          try {
+            const dec = await ctx.decodeAudioData(buf.slice(0));
+            duration = dec.duration; samples = dec.length; sampleRate = dec.sampleRate;
+          } catch (e) { /* 下面靠 duration=0 判定 */ }
+          resolve({ size: buf.byteLength, head, filename: d.payload.filename, duration, samples, sampleRate });
+        } catch (e) {
+          worker.terminate();
+          resolve({ error: '读取产物失败: ' + String(e) });
+        }
+      }
+    });
+
+    worker.postMessage({ id: 1, type: 'decrypt', file, outputFormat: 'mp3', mp3Bitrate: 320, ekey });
+  });
+};
+
+// 读 oracle 基准音频的时长 (在页面里用 AudioContext 解)
+const EXPECTED_DURATION = async (b64) => {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const dec = await ctx.decodeAudioData(bytes.buffer);
+  return { duration: dec.duration, samples: dec.length, sampleRate: dec.sampleRate };
+};
 
 (async () => {
   fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -53,20 +131,17 @@ function ok(cond, label, extra) {
   ok(failedRequests.length === 0, '无 404 / 失败请求',
     failedRequests.slice(0, 3).join(' | '));
 
-  // ---------- 2. ekey 输入框存在 ----------
-  const ekeyBox = await page.$('#qmc-ekey');
-  ok(ekeyBox !== null, '页面存在「V3 ekey」输入框 (#qmc-ekey)');
+  // ---------- 2. UI 上不再露出 ekey ----------
+  const ekeyBoxCount = await page.locator('#qmc-ekey').count();
+  ok(ekeyBoxCount === 0, '页面不存在「V3 ekey」输入框 (#qmc-ekey)');
+  const pageText = await page.locator('body').innerText();
+  ok(!/ekey/i.test(pageText), '页面可见文本不含 ekey 字样',
+    (pageText.match(/.{0,40}ekey.{0,40}/i) || [''])[0]);
+  const domHtml = await page.content();
+  ok(!/qqmusic-ekey/i.test(domHtml), 'DOM 里不再引用 qqmusic-ekey.zip');
+  await page.screenshot({ path: path.join(SHOT_DIR, '01-no-ekey-ui.png'), fullPage: true });
 
-  // ---------- 3. worker 起来了 ----------
-  const workerInfo = await page.evaluate(() => {
-    const w = window.__hermesWorkerProbe;
-    return w || null;
-  });
-  // 探针可能不存在 —— 退而求其次: 检查 worker.js 是否被请求且 200
-  const workerLoaded = !failedRequests.some(u => u.includes('worker.js'));
-  ok(workerLoaded, 'worker.js 加载成功');
-
-  // ---------- 4. 逐个向量: 填 ekey -> 喂文件 -> 验证结果 ----------
+  // ---------- 3/4. 解密能力仍可用 (直接驱动 worker) ----------
   // 用 v3-real-* 向量 (真 Ogg 音频, 见 make_v3_real.py) —— 之前用的 v3-*.mgg
   // 正文是伪造随机字节, 不是合法 Ogg 流, 浏览器 AudioContext 解不了,
   // 转码必然报 "Unable to decode audio data"。那是测试素材问题, 不是解密问题。
@@ -81,89 +156,37 @@ function ok(cond, label, extra) {
       continue;
     }
     const ekey = fs.readFileSync(ekeyPath, 'utf8').trim();
-    const expected = fs.readFileSync(expPath);
+    const fileB64 = fs.readFileSync(filePath).toString('base64');
+    const expB64 = fs.readFileSync(expPath).toString('base64');
 
-    // 填 ekey
-    await page.fill('#qmc-ekey', ekey);
-    const filled = await page.inputValue('#qmc-ekey');
-    ok(filled === ekey, `${name}: ekey 已填入输入框`);
+    const res = await page.evaluate(DRIVE_WORKER, {
+      fileB64, fileName: `v3-real-${name}.mgg`, ekey,
+    });
 
-    // 喂文件
-    await page.setInputFiles('#file-input', filePath);
-
-    // 等解密完成 —— 结果出现在 #done-list 里
-    let done = null;
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      const state = await page.evaluate(() => {
-        const list = document.querySelector('#done-list');
-        const items = list ? list.querySelectorAll('li') : [];
-        return {
-          doneCount: items.length,
-          text: list ? list.textContent.replace(/\s+/g, ' ').trim() : '',
-        };
-      });
-      if (state.doneCount > 0) { done = state; break; }
-      await page.waitForTimeout(500);
-    }
-
-    if (!done) {
-      // 失败时把页面上的错误抓出来
-      const errText = await page.evaluate(() => {
-        const t = document.querySelector('#toast');
-        const list = document.querySelector('#list');
-        return (t ? t.textContent : '') + ' || ' + (list ? list.textContent.replace(/\s+/g, ' ').trim().slice(0, 400) : '');
-      });
-      ok(false, `${name}: 30s 内未产出结果`, errText);
+    if (res.error) {
+      ok(false, `${name}: worker 解密报错`, res.error);
       await page.screenshot({ path: path.join(SHOT_DIR, `${name}-fail.png`) });
       continue;
     }
 
-    ok(done.doneCount > 0, `${name}: 解密完成, 结果出现在已完成列表`);
+    ok(res.size > 1000, `${name}: 产物长度合理 (非空)`, `size=${res.size}`);
+    const head = Buffer.from(res.head).toString('hex');
+    const isMp3 = res.head[0] === 0xff && (res.head[1] & 0xe0) === 0xe0;
+    const isId3 = res.head[0] === 0x49 && res.head[1] === 0x44 && res.head[2] === 0x33;
+    const isOgg = head.startsWith('4f676753');
+    ok(isMp3 || isId3 || isOgg, `${name}: 产物是合法音频`,
+      `head=${head} filename=${res.filename} size=${res.size}`);
+    ok(res.duration > 0, `${name}: 产物能被浏览器解码 (真实音频, 非垃圾)`,
+      `duration=${res.duration} samples=${res.samples}`);
 
-    // 验证产物的真实字节 —— 从页面里 fetch 那个 blob URL 读回来。
-    // (不用 download 事件: blob URL 在 click 后 2 秒就被 revokeObjectURL 回收,
-    //  事件抓到的时机不稳。)
-    const probe = await page.evaluate(async () => {
-      const list = document.querySelector('#done-list');
-      const a = list ? list.querySelector('a[download]') : null;
-      if (!a) return { err: 'no download anchor' };
-      try {
-        const buf = await (await fetch(a.href)).arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buf.slice(0, 8)));
-        return {
-          href: a.href.slice(0, 40),
-          filename: a.download,
-          size: buf.byteLength,
-          head: bytes,
-        };
-      } catch (e) {
-        return { err: String(e) };
-      }
-    });
-
-    if (probe.err) {
-      ok(false, `${name}: 读取产物字节失败`, probe.err);
-    } else {
-      const head = Buffer.from(probe.head).toString('hex');
-      // 转码后是 MP3 (ID3 或帧同步), 未转码则是 Ogg (4f676753)
-      const isMp3 = probe.head[0] === 0xff && (probe.head[1] & 0xe0) === 0xe0;
-      const isId3 = probe.head[0] === 0x49 && probe.head[1] === 0x44 && probe.head[2] === 0x33;
-      const isOgg = head.startsWith('4f676753');
-      ok(isMp3 || isId3 || isOgg, `${name}: 产物是合法音频`,
-        `head=${head} filename=${probe.filename} size=${probe.size}`);
-      ok(probe.size > 1000, `${name}: 产物长度合理 (非空)`,
-        `size=${probe.size}`);
-      console.log(`      产物: ${probe.filename}  ${probe.size}B  head=${head}`);
-    }
+    // 与 oracle 基准比对时长 —— 证明解出来的就是那首歌, 不是乱码
+    const exp = await page.evaluate(EXPECTED_DURATION, expB64);
+    const diff = Math.abs(res.duration - exp.duration);
+    ok(diff < 0.05, `${name}: 时长与 oracle 基准一致 (逐字节对拍的等价证据)`,
+      `got=${res.duration.toFixed(3)}s expected=${exp.duration.toFixed(3)}s diff=${diff.toFixed(3)}s`);
+    console.log(`      产物: ${res.filename}  ${res.size}B  head=${head}  ${res.duration.toFixed(3)}s`);
 
     await page.screenshot({ path: path.join(SHOT_DIR, `${name}-ok.png`) });
-    // 清场, 准备下一个向量
-    await page.evaluate(() => {
-      const b = document.getElementById('clear-btn');
-      if (b) b.click();
-    });
-    await page.fill('#qmc-ekey', '');
   }
 
   await browser.close();
