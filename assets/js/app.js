@@ -66,7 +66,7 @@
   // ---------- Worker ----------
   function getWorker() {
     if (state.worker) return state.worker;
-    state.worker = new Worker('assets/js/worker.js?v=106');
+    state.worker = new Worker('assets/js/worker.js?v=108');
     state.worker.addEventListener('message', onWorkerMessage);
     state.worker.addEventListener('error', (e) => {
       toast('Worker 错误: ' + e.message, 'error', 6000);
@@ -200,10 +200,14 @@
       if (item.status === 'pending') {
         item.status = 'processing';
         const msg = { id: item.id, type: 'decrypt', file: item.file };
-        // 默认转码为 MP3 (UI 上有码率下拉)
-        msg.outputFormat = 'mp3';
-        const br = parseInt((document.getElementById('mp3-bitrate') || {}).value, 10);
-        if (br) msg.mp3Bitrate = br;
+        // 默认保持原格式 —— 只去壳, 不重新编码 (见 FAQ「转换会损失音质吗」)。
+        // 用户在上传区勾选「转为 MP3」时才重编码。
+        const toMp3 = document.getElementById('to-mp3');
+        msg.outputFormat = (toMp3 && toMp3.checked) ? 'mp3' : 'keep';
+        if (msg.outputFormat === 'mp3') {
+          const br = parseInt((document.getElementById('mp3-bitrate') || {}).value, 10);
+          if (br) msg.mp3Bitrate = br;
+        }
         getWorker().postMessage(msg);
       }
     }
@@ -439,6 +443,20 @@
     optRow.addEventListener('click', (e) => e.stopPropagation());
     optRow.addEventListener('dblclick', (e) => e.stopPropagation());
   }
+
+  // 「转为 MP3」开关 —— 默认关闭, 默认保持原格式 (不重新编码)。
+  // 打开后码率下拉才可用, 见 FAQ「转换会损失音质吗」。
+  const toMp3Box = document.getElementById('to-mp3');
+  const bitrateSel = document.getElementById('mp3-bitrate');
+  function syncBitrateState() {
+    if (!toMp3Box || !bitrateSel) return;
+    bitrateSel.disabled = !toMp3Box.checked;
+    bitrateSel.style.opacity = toMp3Box.checked ? '1' : '.5';
+  }
+  if (toMp3Box && bitrateSel) {
+    toMp3Box.addEventListener('change', syncBitrateState);
+    syncBitrateState();
+  }
   // 扩展状态行 (也在 dropzone 内, 防止 click 冒泡)
 
   // ---------- Events ----------
@@ -473,5 +491,14 @@
       if (!dropzone.contains(e.target)) e.preventDefault();
     });
   });
+
+  // ---------- Service Worker ----------
+  // 离线可用: 导航走 network-first (保证更新能落地), 静态资源 cache-first。
+  // 资源 URL 带 ?v= 版本戳, 改版即换 URL, 不会命中旧缓存。
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js?v=108').catch(() => {});
+    });
+  }
 
 })();

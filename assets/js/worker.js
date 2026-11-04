@@ -10,7 +10,7 @@
  * ============================================ */
 
 // 版本号 — 改了 worker.js 或 modules 时同步改这里, 强制浏览器绕缓存
-const V = 106;
+const V = 108;
 
 importScripts(
   `../../modules/aes-js.js?v=${V}`,
@@ -181,7 +181,7 @@ self.addEventListener('message', async (e) => {
 
     const bytes = new Uint8Array(await file.arrayBuffer());
 
-    // 纯音频: 跳过 decrypt, 直接转码
+    // 纯音频: 跳过 decrypt。默认原样返回 (不重编码), 用户要求时才转 MP3。
     if (fmt === 'plain') {
       // 已经是 MP3 就原样返回 —— 走 lame 重编码只会白白掉音质。
       if (ext === 'mp3') {
@@ -194,6 +194,26 @@ self.addEventListener('message', async (e) => {
             filename: file.name,
             meta: {},
             ext: 'mp3',
+            size: blob.size,
+            passthrough: true
+          }
+        });
+        return;
+      }
+      // 默认「保持原格式」: 明文音频原样吐回, 不重新编码, 不改文件名。
+      if (outputFormat !== 'mp3') {
+        const plainMime = { flac: 'audio/flac', ogg: 'audio/ogg', opus: 'audio/ogg',
+                            wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac',
+                            ape: 'audio/x-ape', webm: 'audio/webm' };
+        const blob = new Blob([bytes], { type: plainMime[ext] || 'application/octet-stream' });
+        self.postMessage({
+          id,
+          type: 'done',
+          payload: {
+            blob,
+            filename: file.name,
+            meta: {},
+            ext,
             size: blob.size,
             passthrough: true
           }

@@ -1,0 +1,14 @@
+{
+  "name": "音乐解锁 · NCM / QMC / KGM / VPR",
+  "short_name": "音乐解锁",
+  "description": "把各大音乐平台的加密格式转换成通用的 MP3 / FLAC / OGG，全部在浏览器本地完成",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#050714",
+  "theme_color": "#050714",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

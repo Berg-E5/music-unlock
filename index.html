@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="本地解锁 NCM / QMC / KGM / VPR 加密音乐格式 · 浏览器内运行 · 文件不上传" />
   <title>音乐解锁 · NCM / QMC / KGM / VPR → MP3 / FLAC</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=103" />
+  <link rel="stylesheet" href="assets/css/style.css?v=108" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2322d3ee'/%3E%3Cstop offset='100%25' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -36,7 +37,7 @@
             <span class="dz-fmt-chip">.vpr</span>
           </div>
           <div class="dz-fmt-group">
-            <span class="dz-fmt-label dz-fmt-plain">直接转 MP3</span>
+            <span class="dz-fmt-label dz-fmt-plain">保持原格式</span>
             <span class="dz-fmt-chip">.mp3</span>
             <span class="dz-fmt-chip">.flac</span>
             <span class="dz-fmt-chip">.ogg</span>
@@ -49,14 +50,17 @@
         </div>
 
         <div class="opt-row" id="opt-row" style="margin:8px 0;display:flex;gap:14px;align-items:center;justify-content:center;font-size:14px;color:#5a6275;flex-wrap:wrap">
-          <span style="color:#5a6275">输出码率：</span>
-          <select id="mp3-bitrate" style="padding:4px 8px;border-radius:4px;border:1px solid #ccc">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:#5a6275">
+            <input type="checkbox" id="to-mp3" style="cursor:pointer" />
+            <span>转为 MP3</span>
+          </label>
+          <select id="mp3-bitrate" disabled style="padding:4px 8px;border-radius:4px;border:1px solid #ccc;opacity:.5">
             <option value="128">128 kbps</option>
             <option value="192">192 kbps</option>
             <option value="256">256 kbps</option>
             <option value="320" selected>320 kbps</option>
           </select>
-          <span style="color:#999;font-size:12px;margin-left:4px">(默认转码为 MP3)</span>
+          <span style="color:#999;font-size:12px;margin-left:4px">(默认保持原格式，不重新编码)</span>
         </div>
 
 
@@ -164,7 +168,7 @@
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6zm-2 16c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
         </div>
         <h3>完美还原</h3>
-        <p>自动解析并保留专辑封面、歌手信息、歌词等元数据，源文件是 FLAC 就输出 FLAC，MP3 就输出 MP3。</p>
+        <p>自动解析并保留专辑封面、歌手信息、歌词等元数据。默认不重新编码：源文件是 FLAC 就输出 FLAC，MP3 就输出 MP3。</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon" aria-hidden="true">
@@ -343,7 +347,8 @@
     <!-- 关于无损 — 改成跨平台通用的解释 -->
     <section class="content-block subtle">
       <h2 class="block-title">关于无损保真</h2>
-      <p class="prose">本工具做的事情是<strong>去除加密外壳</strong>，不涉及任何重新编码。源文件是无损 FLAC 就输出 FLAC，是 320kbps MP3 就输出同样的 320kbps MP3。音质与原文件<strong>完全一致</strong>，你也不需要做任何格式设置。</p>
+      <p class="prose">本工具默认只做<strong>去除加密外壳</strong>，不重新编码。源文件是无损 FLAC 就输出 FLAC，是 320kbps MP3 就输出同样的 320kbps MP3，音质与原文件<strong>完全一致</strong>，你也不需要做任何格式设置。</p>
+      <p class="prose">确实需要 MP3 时，在上传区勾选「转为 MP3」并选码率。那一步是重新编码，<strong>有损</strong>：无损 FLAC 转成 MP3 会掉音质。这是你的选择，工具不会替你做。</p>
       <p class="prose">如果你想要 ALAC（苹果无损）或 Opus 等其他格式，正确做法也是先在这里还原出原始的 FLAC / MP3，再做无损转码——加密容器内部并不存在这些格式的音频流。</p>
     </section>
 
@@ -378,7 +383,8 @@
         <details>
           <summary>转换会损失音质吗？</summary>
           <div class="faq-body">
-            <p>不会。本工具只做"去除加密外壳"，原始音频数据完整保留，不重新编码。如果原文件是 320kbps 的 MP3，转换后仍然是 320kbps；如果原文件是无损 FLAC，转换后也是无损 FLAC。音质与原文件完全一致。</p>
+            <p>默认不会。本工具只做"去除加密外壳"，原始音频数据完整保留，不重新编码。如果原文件是 320kbps 的 MP3，转换后仍然是 320kbps；如果原文件是无损 FLAC，转换后也是无损 FLAC。音质与原文件完全一致。</p>
+            <p>唯一的例外是你主动勾选上传区的「转为 MP3」—— 那时才会重新编码，FLAC 转 MP3 会掉音质。</p>
           </div>
         </details>
 
@@ -469,8 +475,8 @@
 
   <!-- JSZip (用于打包下载) -->
   <!-- jszip 本地化: 打包下载全部时用, 走本地不走 CDN -->
-  <script src="modules/jszip.min.js?v=103"></script>
+  <script src="modules/jszip.min.js?v=108"></script>
   <!-- 主应用（所有解密逻辑在 worker 里） -->
-  <script src="assets/js/app.js?v=107"></script>
+  <script src="assets/js/app.js?v=108"></script>
 </body>
 </html>
