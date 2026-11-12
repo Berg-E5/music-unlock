@@ -1,0 +1,16 @@
+# shell 脚本在 Linux 上跑, 必须是 LF —— CRLF 会让 bash 报
+#   "set: pipefail: invalid option name"
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf

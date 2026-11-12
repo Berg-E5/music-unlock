@@ -39,3 +39,11 @@ certbot/
 
 # ---------- 本地备份 ----------
 *.js.bak-*
+
+# ---------- 解密测试向量: 含真实 QQ 音乐密文/明文与有效 ekey 票据 ----------
+# 不可分发 —— 公开仓库只保留生成脚本, 向量本地用 make_*.py 重新生成
+test/xval-vectors/*.bin
+test/xval-vectors/*.ekey.txt
+test/xval-vectors/ekey-*.txt
+test/xval-vectors/expected/*.plain
+test/xval-vectors/expected/*.meta
