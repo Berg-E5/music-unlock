@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# ============================================================
+#  pre-push 钩子 —— 拦住不可分发的文件
+#
+#  为什么需要:
+#    这个项目在 GitHub 上是**公开**仓库, 但 test/xval-vectors/ 里
+#    存着真实 QQ 音乐的密文、解密后的明文, 以及绑定账号的有效 ekey 票据。
+#    这些东西推上去就等于公开发布受版权保护的内容 + 泄露可用票据。
+#
+#  工作方式:
+#    扫这次要推送的所有 commit 的所有文件, 命中就中止推送并列出路径。
+#    不用 --force push 也能拦 (不像某些 hook 只在 force 时才检查)。
+#
+#  装法:
+#    cp pre-push /root/projects/music-unlock/.git/hooks/pre-push
+#    chmod +x /root/projects/music-unlock/.git/hooks/pre-push
+#
+#  绕过 (确实需要推的时候):
+#    SKIP_SENSITIVE_PUSH=1 git push ...
+# ============================================================
+set -uo pipefail
+
+# ---- 可配置的禁推清单 ----
+# 匹配的是**路径**。用 glob, 不是正则。
+SENSITIVE_PATTERNS=(
+  # 真实音乐密文 / 解密明文
+  'test/xval-vectors/*.bin'
+  'test/xval-vectors/expected/*.plain'
+  'test/xval-vectors/expected/*.meta'
+  # 有效 ekey 票据
+  'test/xval-vectors/*.ekey.txt'
+  'test/xval-vectors/ekey-*.txt'
+  # 原始音频 (即使 .gitignore 已经挡了, 双保险)
+  'test/xval-vectors/*.mgg'
+  'test/xval-vectors/*.ncm'
+  'test/xval-vectors/*.mp3'
+  'test/xval-vectors/*.mflac'
+  'test/xval-vectors/*.qmc'
+  'test/xval-vectors/*.kgm'
+  'test/xval-vectors/*.vpr'
+  'test/shots/*'
+  'test/e2e-shots/*'
+)
+
+# ---- 逃生开关 ----
+if [ "${SKIP_SENSITIVE_PUSH:-}" = "1" ]; then
+  echo "⚠ SKIP_SENSITIVE_PUSH=1 —— 跳过敏感文件检查"
+  exit 0
+fi
+
+# ---- pre-push 的参数: <远端名> <远端URL> ----
+remote_name="${1:-origin}"
+remote_url="${2:-}"
+
+# ---- 收集要推送的 commit ----
+# stdin 是 "<local_ref> <local_sha> <remote_ref> <remote_sha>" 每行一条
+z40=0000000000000000000000000000000000000000
+pushed=()
+while read -r _lref lsha _rref rsha; do
+  # 删分支 / 新建分支 (remote_sha 是全 0) -> 推本地 sha
+  if [ "$lsha" != "$z40" ]; then
+    pushed+=("$lsha")
+  fi
+done
+
+if [ ${#pushed[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# ---- 算出这次推送**新增**了哪些 commit ----
+# 只查新增的部分 —— 否则历史上早就存在的敏感文件会让每次推送都失败。
+# (服务器仓库历史里有测试向量是正常的, 问题是「这次要不要把它们推上去」)
+newcommits=()
+for sha in "${pushed[@]}"; do
+  if [ "$rsha" = "$z40" ] || ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+    # 新建分支, 或者远端那个 commit 本地没有
+    # (GitHub 上用 API 重建的历史和本地不是同一条链, rsha 查不到)
+    # -> 保守处理: 本次要推的所有 commit 都算新增
+    while read -r c; do newcommits+=("$c"); done < <(git rev-list "$sha" 2>/dev/null)
+  else
+    # 已有分支: 只算远端没有的
+    while read -r c; do newcommits+=("$c"); done < <(git rev-list "$rsha..$sha" 2>/dev/null)
+  fi
+done
+
+if [ ${#newcommits[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# ---- 扫文件 ----
+# 用 git ls-tree 列出新增 commit 里的所有 blob 路径
+files=$(for sha in "${newcommits[@]}"; do
+  git ls-tree -r --name-only "$sha" 2>/dev/null
+done | sort -u)
+
+if [ -z "$files" ]; then
+  exit 0
+fi
+
+# 用 bash 的 case 做 glob 匹配 —— 不要用 grep -E!
+# grep 的正则里 * 是量词不是通配符, '*.bin' 会变成「任意字符 + bin」,
+# 结果 dv-rc4.bin 反而匹配不上, 而 qmc_ref.py 匹配上了 (完全反了)。
+hits=()
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  for pat in "${SENSITIVE_PATTERNS[@]}"; do
+    case "$f" in
+      $pat) hits+=("$f"); break ;;
+    esac
+  done
+done <<< "$files"
+
+if [ ${#hits[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# ---- 拦下来 ----
+echo "" >&2
+echo "✗ 推送被拒绝: 检测到 ${#hits[@]} 个不可分发的文件" >&2
+printf '    %s\n' "${hits[@]}" >&2
+echo "" >&2
+echo "  这些是真实音乐密文/明文和有效 ekey 票据, 不能进公开仓库。" >&2
+echo "  处理办法:" >&2
+echo "    1) 先用 filter-branch 从历史里剥掉, 再推 (见 README「公开仓库的边界」);" >&2
+echo "    2) 或者 git rm --cached <文件> 后重新提交。" >&2
+echo "    3) 确实需要推的话: SKIP_SENSITIVE_PUSH=1 git push" >&2
+echo "" >&2
+exit 1

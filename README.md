@@ -290,6 +290,73 @@ never 发任何网络请求。整个站没有后端，没有数据库，没有�
 
 ---
 
+## 公开仓库的边界
+
+这个仓库是**公开**的，但里面**不含**解密测试向量。原因很实在：
+
+| 文件类型 | 内容 | 为什么不能公开 |
+|---|---|---|
+| `test/xval-vectors/*.bin` | 真实 QQ 音乐**密文** | 受版权保护的音频数据 |
+| `test/xval-vectors/expected/*.plain` | **解密后的明文音频** | 同上 |
+| `test/xval-vectors/*.ekey.txt` | **有效 ekey 票据** | 绑定用户账号，别人拿去能用 |
+| `test/xval-vectors/*.mgg` / `*.ncm` | 原始测试音频 | 同上 |
+
+所以仓库里只保留 `make_*.py` 这些**生成脚本**，向量本地重新生成：
+
+```bash
+cd test/xval-vectors
+python3 make_v3_real.py      # 需要本机有原始 .mgg 文件
+python3 make_v3.py
+python3 make_derived.py
+```
+
+`.gitignore` 里已经排除了这些文件。**如果你手滑把它们加进暂存区，提交前会被
+服务器上的 pre-push 钩子拦下来**（见下）。
+
+### 从完整仓库推到这个公开仓库
+
+服务器上的 `/root/projects/music-unlock` 保留着**完整历史**（含测试向量），
+GitHub 上是**剥离过的公开版**。两者 commit SHA 不同 —— 内容一样，但历史不同。
+
+所以**不要**直接在服务器上 `git push --force`：
+
+```bash
+# ❌ 会把测试向量一起推上去
+cd /root/projects/music-unlock && git push --force origin main
+
+# ✅ 先剥掉敏感文件, 再推
+cd /root/projects/music-unlock
+git filter-branch -f --index-filter \
+  'git rm --cached --ignore-unmatch -q -- \
+   test/xval-vectors/*.bin \
+   test/xval-vectors/*.ekey.txt \
+   test/xval-vectors/ekey-*.txt \
+   test/xval-vectors/expected/*.plain' \
+  --prune-empty -- --all
+# 别忘了清 refs/original/, 否则旧 commit 还在:
+git for-each-ref --format='%(refname)' refs/original/ | xargs -n1 git update-ref -d
+rm -rf .git/refs/original
+git reflog expire --expire=now --all && git gc --prune=now
+```
+
+### pre-push 钩子
+
+服务器上 `/root/projects/music-unlock/.git/hooks/pre-push` 会检查这次推送里
+有没有敏感文件，有就中止并列出具体路径：
+
+```
+✗ 推送被拒绝: 检测到 3 个不可分发的文件
+    test/xval-vectors/dv-rc4.bin
+    test/xval-vectors/dv-rc4.ekey.txt
+  这些是真实音乐密文/明文和有效 ekey 票据, 不能进公开仓库。
+  先用 filter-branch 剥掉, 或者 git rm --cached 后再推。
+```
+
+**注意**：钩子只在服务器上装（属于 `.git/hooks/`，不进仓库）。别人 clone
+这个公开仓库是干净的。
+
+---
+
 ## 来源与致谢
 
 - 解密算法经多个公开逆向实现交叉验证

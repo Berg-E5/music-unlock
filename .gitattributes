@@ -14,3 +14,5 @@ Dockerfile text eol=lf
 docker-compose.yml text eol=lf
 # Windows 批处理保持 CRLF
 *.bat text eol=crlf
+# pre-push 钩子 (无扩展名)
+pre-push text eol=lf
