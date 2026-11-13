@@ -284,8 +284,13 @@ NGINXCONF
 
     info "校验并重载 nginx"
     nginx -t
-    systemctl reload nginx || systemctl restart nginx
-    ok "nginx 已重载"
+    # reload 对一个"装了但没启动"的 nginx 是无效的 (云镜像 / 容器很常见),
+    # 而且 reload 失败时 systemctl 可能仍返回 0, 后面那个 || 就不触发了。
+    # 统一 enable + restart: 保证一定在跑, 重启机器后也会自动拉起。
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl restart nginx
+    systemctl is-active --quiet nginx || die "nginx 启动失败"
+    ok "nginx 已重启并确认在运行"
     CONF_WROTE="$CONF"
     ;;
 
